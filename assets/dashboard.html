@@ -1,0 +1,266 @@
+<div id="finance-app" class="dashboard-app">
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"></div>
+      <div>
+        <div class="brand-title">Финансовый анализ</div>
+        <div class="brand-subtitle">банковских выписок</div>
+      </div>
+    </div>
+
+    <nav class="topnav" aria-label="Навигация">
+      <button class="nav-btn active" type="button" data-page="main"><span class="nav-icon">⌂</span>Главная</button>
+      <button class="nav-btn" type="button" data-page="stats"><span class="nav-icon">▥</span>Статистика</button>
+      <button class="nav-btn" type="button" data-page="history"><span class="nav-icon">◔</span>История</button>
+    </nav>
+
+    <div class="top-actions">
+      <div class="user-square" aria-hidden="true"></div>
+      <button class="logout-btn" type="button">Выйти</button>
+    </div>
+  </header>
+
+  <main class="dashboard-body">
+    <section class="page active" data-view="main">
+      <div class="stage-title-row">
+        <h1>Этапы анализа</h1>
+        <span>Нажмите на этап, чтобы вернуться</span>
+      </div>
+
+      <section class="card stages-card">
+        <button class="stage-item active" type="button" data-stage="import">
+          <span class="stage-dot">1</span>
+          <h3>Импорт выписки</h3>
+          <p>Загрузите PDF, CSV или XLS, мы проверим корректность и подготовим структуру данных.</p>
+        </button>
+        <div class="stage-line done"></div>
+        <button class="stage-item done" type="button" data-stage="analysis">
+          <span class="stage-dot">2</span>
+          <h3>Анализ транзакций</h3>
+          <p>Нормализуем, классифицируем и строим распределение потоков денег.</p>
+        </button>
+        <div class="stage-line pending"></div>
+        <button class="stage-item current" type="button" data-stage="counterparties">
+          <span class="stage-dot">3</span>
+          <h3>Контрагенты</h3>
+          <p>Оценка рисков, выявление аномалий и рейтинги надежности партнеров.</p>
+        </button>
+        <div class="stage-line pending"></div>
+        <button class="stage-item muted" type="button" data-stage="legal">
+          <span class="stage-dot">4</span>
+          <h3>Юридический отчет</h3>
+          <p>Готовим комплаенс-резюме, подсвечиваем рисковые блоки и рекомендации.</p>
+        </button>
+      </section>
+
+      <section class="card info-card" id="stage-text-card">
+        <h2>Что делает Агент на шаге импорта</h2>
+        <ul class="bullet-list" id="stage-bullets">
+          <li>Считывает формат и выравнивает колонки выписки, чтобы не терялась структура.</li>
+          <li>Находит потенциальные ошибки в данных до запуска аналитики.</li>
+          <li>Подготавливает быстрый предпросмотр, чтобы подтвердить корректность файла.</li>
+        </ul>
+      </section>
+
+      <section class="card upload-card">
+        <h2>Загрузка документа</h2>
+        <p class="muted-text">Вставьте ваш файл, а остальное оставьте нам — Агент сам поймет структуру выписки и подготовит следующий шаг.</p>
+        <div class="dropzone" id="dropzone">
+          <input id="file-picker" type="file" multiple accept=".pdf,.csv,.xls,.xlsx" hidden>
+          <div class="dropzone-inner">
+            <div class="drop-icon">▣</div>
+            <strong>Перетащите выписку сюда</strong>
+            <span id="selected-file-label">или выберите документ на устройстве</span>
+            <div class="drop-actions">
+              <button class="secondary-btn" type="button" id="choose-file-btn">Выбрать файл</button>
+              <button class="primary-btn" type="button" id="run-analysis-btn">Запустить анализ</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="recent-docs-block">
+          <h3>Последние документы</h3>
+          <p class="muted-text small">Всё, что вы загружали за последние дни</p>
+          <table class="soft-table" id="docs-table">
+            <thead><tr><th>Документ</th><th>Тип</th><th>Загружено</th><th>Статус</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card table-card">
+        <div class="card-header-row">
+          <h2>Таблица транзакций</h2>
+          <button class="tiny-btn" type="button" id="download-transactions">Скачать таблицу</button>
+        </div>
+        <div class="table-scroll smart-table-wrap">
+          <table class="smart-table" id="transactions-table">
+            <thead>
+              <tr>
+                <th data-key="date">Дата <span class="sort-mark">↕</span></th>
+                <th data-key="time">Время <span class="sort-mark">↕</span></th>
+                <th data-key="doc">Документ <span class="sort-mark">↕</span></th>
+                <th data-key="type">Тип <span class="sort-mark">↕</span></th>
+                <th data-key="category">Категория <span class="sort-mark">↕</span></th>
+                <th data-key="counterparty">Контрагент <span class="sort-mark">↕</span></th>
+                <th data-key="inn">ИНН <span class="sort-mark">↕</span></th>
+                <th data-key="kpp">КПП <span class="sort-mark">↕</span></th>
+              </tr>
+              <tr class="filter-row">
+                <td><input data-filter="date" aria-label="Фильтр даты"></td>
+                <td><input data-filter="time" aria-label="Фильтр времени"></td>
+                <td><input data-filter="doc" aria-label="Фильтр документа"></td>
+                <td><input data-filter="type" aria-label="Фильтр типа"></td>
+                <td><input data-filter="category" aria-label="Фильтр категории"></td>
+                <td><input data-filter="counterparty" aria-label="Фильтр контрагента"></td>
+                <td><input data-filter="inn" aria-label="Фильтр ИНН"></td>
+                <td><input data-filter="kpp" aria-label="Фильтр КПП"></td>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <div class="pager-row">
+          <label>Page Size: <select id="page-size"><option>15</option><option>10</option><option>5</option></select></label>
+          <span id="page-info">0 to 0 of 0</span>
+          <button class="pager-btn" type="button" data-pager="first">|&lt;</button>
+          <button class="pager-btn" type="button" data-pager="prev">‹</button>
+          <span id="page-label">Page 1 of 1</span>
+          <button class="pager-btn" type="button" data-pager="next">›</button>
+          <button class="pager-btn" type="button" data-pager="last">&gt;|</button>
+        </div>
+      </section>
+
+      <section class="two-col-grid">
+        <div class="card chart-card small-chart-card">
+          <h2>Суммы транзакций за один день</h2>
+          <div class="chart-shell" data-chart="area" data-source="dailyAmountBuckets" data-x="bucket" data-y="value" data-ymax="8" data-unit=""></div>
+        </div>
+        <div class="card chart-card small-chart-card">
+          <h2>Активность по дням</h2>
+          <div class="chart-shell" data-chart="line" data-source="dailyActivity" data-x="day" data-series="incoming:Поступления,outgoing:Расходные операции" data-ymax="16"></div>
+        </div>
+      </section>
+    </section>
+
+    <section class="page" data-view="stats">
+      <section class="card chart-card big-chart-card">
+        <h2>Динамика движения средств</h2>
+        <p class="muted-text">Следим за балансом поступлений и списаний по месяцам.</p>
+        <div class="chart-shell chart-tall" data-chart="cashflow" data-source="cashFlowMonthly" data-x="month" data-series="incoming:Поступления,outgoing:Расходные операции" data-ymax="24" data-unit=" млн"></div>
+      </section>
+
+      <section class="card chart-card big-chart-card">
+        <h2>Структура расходов по категориям</h2>
+        <div class="chart-shell" data-chart="bar" data-source="expenseCategories" data-x="category" data-y="value" data-ymax="8" data-unit=" млн"></div>
+      </section>
+
+      <section class="stats-card-grid">
+        <div class="card metric-card">
+          <span>ТОП-4 транзакций по сумме</span>
+          <strong class="countup" data-value="18.2" data-decimals="1" data-suffix=" млн ₽">18,2 млн ₽</strong>
+          <p>Увеличение транзакций за последние 5 месяцев на +42%</p>
+        </div>
+        <div class="card chart-card mini-chart-card">
+          <h2>Топ контрагентов по объему</h2>
+          <div class="chart-shell" data-chart="bar" data-source="topCounterparties" data-x="name" data-y="value" data-ymax="10" data-unit=" млн"></div>
+        </div>
+        <div class="card chart-card donut-card">
+          <h2>Распределение транзакций по уровню риска</h2>
+          <div class="chart-shell" data-chart="donut" data-source="riskDistribution" data-name="level" data-y="value"></div>
+        </div>
+        <div class="card signals-card">
+          <h2>Аномалии и сигналы</h2>
+          <div id="signals-list" class="signals-list"></div>
+        </div>
+      </section>
+
+      <section class="card chart-card big-chart-card">
+        <h2>Динамика новых контрагентов</h2>
+        <div class="chart-shell chart-tall" data-chart="line" data-source="newCounterparties" data-x="week" data-series="newPartners:Новые партнеры,checkPartners:Контрагенты для проверки" data-ymax="12"></div>
+      </section>
+
+      <section class="card registry-card">
+        <h2>Реестры ИНН и оценка риска</h2>
+        <div class="table-scroll">
+          <table class="soft-table" id="registry-table">
+            <thead><tr><th>Контрагент</th><th>ИНН</th><th>Сегмент</th><th>Операций</th><th>Риск</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+    </section>
+
+    <section class="page" data-view="history">
+      <section class="card stages-card history-stages">
+        <div class="stage-item done"><span class="stage-dot">1</span><h3>Импорт выписки</h3><p>Файл загружен и проверен.</p></div>
+        <div class="stage-line done"></div>
+        <div class="stage-item done"><span class="stage-dot">2</span><h3>Анализ транзакций</h3><p>Операции нормализованы.</p></div>
+        <div class="stage-line done"></div>
+        <div class="stage-item done"><span class="stage-dot">3</span><h3>Контрагенты</h3><p>Риск-профили построены.</p></div>
+        <div class="stage-line pending"></div>
+        <div class="stage-item active"><span class="stage-dot">4</span><h3>Юридический отчет</h3><p>Готовим комплаенс-резюме и рекомендации.</p></div>
+      </section>
+
+      <section class="card info-card">
+        <h2>Формирование юридического отчета</h2>
+        <ul class="bullet-list">
+          <li>Собираем обязательства, дедлайны и статусы документов.</li>
+          <li>Присваиваем уровень риска и подготавливаем рекомендации по действиям.</li>
+          <li>Готовим материалы для юридического отдела и службы безопасности.</li>
+        </ul>
+      </section>
+
+      <section class="card legal-card">
+        <div class="card-header-row">
+          <h2>Юридический анализ &amp; отчет</h2>
+          <button class="tiny-btn" type="button" id="download-legal">Скачать таблицу</button>
+        </div>
+        <p class="muted-text">Автоматический комплаенс анализ выделяет обязательства и риски, готовя базу для отчета службе безопасности и юридическому департаменту.</p>
+        <div class="table-scroll">
+          <table class="legal-table" id="legal-table">
+            <thead><tr><th>Общая сумма</th><th>Количество операций</th><th>Риск</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <section class="card history-card">
+        <h2>История обработки</h2>
+        <div class="timeline">
+          <div><span>12.11.2024, 09:12</span><b>Загружен файл statement_november.pdf</b></div>
+          <div><span>12.11.2024, 09:14</span><b>Завершена нормализация колонок</b></div>
+          <div><span>12.11.2024, 09:22</span><b>Сформирован предварительный юридический отчет</b></div>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <div class="modal-overlay" id="detail-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div class="modal-card" role="document">
+      <button class="modal-close" type="button" id="modal-close" data-modal-close aria-label="Закрыть">×</button>
+      <h2 id="modal-title">Детализация риска</h2>
+      <p id="modal-text">Описание выбранного блока риска.</p>
+    </div>
+  </div>
+
+
+  <div class="agent-loading-overlay" id="agent-loading-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="agent-loading-title">
+    <div class="agent-loading-card" role="document">
+      <div class="agent-loading-orb" aria-hidden="true"></div>
+      <div class="agent-loading-copy">
+        <span class="agent-loading-eyebrow">AI Agent Runtime</span>
+        <h2 id="agent-loading-title">Запуск анализа выписки</h2>
+        <p id="agent-loading-text">Инициализируем агента и передаем файл в backend.</p>
+      </div>
+      <div class="agent-progress-track" aria-hidden="true"><span id="agent-progress-fill"></span></div>
+      <div class="agent-loading-meta">
+        <span id="agent-progress-percent">0%</span>
+        <span>tqdm / backend pipeline</span>
+      </div>
+    </div>
+  </div>
+
+
+  <div class="chart-tooltip" id="chart-tooltip" hidden></div>
+</div>
