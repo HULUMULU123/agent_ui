@@ -7,7 +7,7 @@
     app.dataset.ready = "1";
 
     const data = normalizeData(DEFAULT_DATA);
-    window.financeDashboardApp = { data, rerender: () => renderAll(app, data) };
+    window.financeDashboardApp = { data, rerender: () => renderAll(app, window.financeDashboardApp.data) };
 
     initNavigation(app);
     initStages(app);
@@ -22,8 +22,30 @@
   }
 
   function normalizeData(raw) {
+    raw = raw || {};
+    const meta = raw.meta || {};
+    const analysisCompleted = meta.analysisCompleted === true || meta.analysisCompleted === "true";
+    if (!analysisCompleted) {
+      return {
+        meta: { ...meta, analysisCompleted: false },
+        summary: {},
+        statementSummary: {},
+        outputSummary: {},
+        documents: [],
+        transactions: [],
+        charts: {},
+        signals: [],
+        legalReport: [],
+        counterpartyRegistry: [],
+        modal: {}
+      };
+    }
     const charts = raw.charts || {};
     return {
+      meta: { ...meta, analysisCompleted: true },
+      summary: raw.summary || {},
+      statementSummary: raw.statementSummary || {},
+      outputSummary: raw.outputSummary || {},
       documents: Array.isArray(raw.documents) ? raw.documents : [],
       transactions: Array.isArray(raw.transactions) ? raw.transactions : [],
       charts,
@@ -35,11 +57,25 @@
   }
 
   function renderAll(app, data) {
+    applyAnalysisState(app, data);
+    renderSummary(app, data.summary || {}, data.statementSummary || {}, data.outputSummary || {});
     renderDocuments(app, data.documents);
     renderSignals(app, data.signals);
     renderRegistry(app, data.counterpartyRegistry);
     renderLegalReport(app, data.legalReport);
     renderCharts(app, data.charts);
+  }
+
+  function hasCompletedAnalysis(data) {
+    return Boolean(data && data.meta && data.meta.analysisCompleted === true);
+  }
+
+  function applyAnalysisState(app, data) {
+    const done = hasCompletedAnalysis(data);
+    app.classList.toggle("has-analysis", done);
+    app.classList.toggle("no-analysis", !done);
+    const statsPlaceholder = app.querySelector("#stats-empty-card");
+    if (statsPlaceholder instanceof HTMLElement) statsPlaceholder.hidden = done;
   }
 
   function initNavigation(app) {
@@ -50,7 +86,7 @@
         const target = btn.dataset.page;
         navButtons.forEach((b) => b.classList.toggle("active", b === btn));
         pages.forEach((page) => page.classList.toggle("active", page.dataset.view === target));
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        window.scrollTo(0, 0);
         setTimeout(() => {
           renderCharts(app, window.financeDashboardApp?.data?.charts || {});
           initCountups(app);
@@ -129,9 +165,6 @@
           const stageTitle = app.querySelector("#stage-text-card h2");
           const stageBullets = app.querySelector("#stage-bullets");
           if (stage && stageTitle && stageBullets) {
-            stageTitle.classList.remove("stage-text-enter");
-            void stageTitle.offsetWidth;
-            stageTitle.classList.add("stage-text-enter");
             stageTitle.textContent = stage.title;
             stageBullets.innerHTML = stage.bullets.map((text) => `<li>${escapeHtml(text)}</li>`).join("");
           }
@@ -160,8 +193,9 @@
       return document.querySelector('#agent-file-upload input[type="file"]') || document.querySelector('#agent-file-upload input');
     }
 
-    function bridgeStartButton() {
-      return document.querySelector('#agent-start-button button') || document.querySelector('#agent-start-button');
+    function bridgeStartButton(testMode) {
+      const selector = testMode ? '#agent-start-test-button' : '#agent-start-button';
+      return document.querySelector(`${selector} button`) || document.querySelector(selector);
     }
 
     function rememberSelectedFiles(files) {
@@ -234,33 +268,61 @@
 
     runAnalysis?.addEventListener("click", () => {
       const selected = window.__financeDashboardSelectedFiles;
-      if (!selected || !selected.length) {
-        openAgentLoadingModal(app, "Сначала загрузите Excel/CSV-файл", true);
-        window.setTimeout(() => closeAgentLoadingModal(app), 1450);
+      const testMode = Boolean(app.querySelector("#test-mode-checkbox")?.checked);
+      if ((!selected || !selected.length) && !testMode) {
+        openAgentLoadingModal(app, "Сначала загрузите Excel/CSV-файл или включите тестовый режим", true);
+        window.setTimeout(() => closeAgentLoadingModal(app), 1700);
         return;
       }
-      openAgentLoadingModal(app, "Передаем файл агенту и запускаем backend pipeline.");
-      const button = bridgeStartButton();
+      openAgentLoadingModal(app, testMode ? "Тестовый режим: агент отключен, загружаем mock-результат." : "Передаем файл агенту и запускаем backend pipeline.");
+      const button = bridgeStartButton(testMode);
       if (button instanceof HTMLElement) {
         window.setTimeout(() => button.click(), 160);
       } else {
-        setAgentLoadingError(app, "Не найден backend bridge Gradio. Проверьте app.py.");
+        setAgentLoadingError(app, testMode ? "Не найден backend bridge тестового режима. Проверьте app.py." : "Не найден backend bridge реального режима. Проверьте app.py.");
       }
     });
   }
 
   function initBackendStatusMonitor(app) {
+    let lastStatus = "";
+    let lastPayload = "";
+
     const poll = () => {
       const statusNode = document.getElementById("agent-run-status");
+      const payloadNode = document.getElementById("agent-run-payload");
       const rawText = statusNode ? (statusNode.textContent || "") : "";
       const textareaValue = statusNode?.querySelector?.("textarea")?.value || "";
-      const text = `${rawText} ${textareaValue}`;
+      const text = `${rawText} ${textareaValue}`.trim();
 
-      if (text.includes("ANALYSIS_DONE")) {
-        setAgentLoadingComplete(app, text.replace(/^.*ANALYSIS_DONE:/s, "Готово:"));
+      const payloadText = payloadNode?.querySelector?.("textarea")?.value || payloadNode?.textContent || "";
+      if (payloadText && payloadText !== lastPayload && payloadText.trim().startsWith("{")) {
+        lastPayload = payloadText;
+        try {
+          const parsedPayload = JSON.parse(payloadText);
+          parsedPayload.meta = parsedPayload.meta || {};
+          parsedPayload.meta.analysisCompleted = true;
+          const nextData = normalizeData(parsedPayload);
+          window.financeDashboardApp.data = nextData;
+          renderAll(app, nextData);
+          initSmartTable(app, nextData);
+          initDownloads(app, nextData);
+          initCountups(app);
+          initRevealAnimations(app);
+          showAnalysisPreview(app, readBridgeText("agent-run-preview"), readBridgeText("agent-run-status"));
+        } catch (error) {
+          console.warn("Не удалось применить dashboard_payload из backend", error);
+        }
       }
-      if (text.includes("ANALYSIS_ERROR")) {
-        setAgentLoadingError(app, text.replace(/^.*ANALYSIS_ERROR:/s, "Ошибка:"));
+
+      if (text && text !== lastStatus) {
+        lastStatus = text;
+        if (text.includes("ANALYSIS_DONE")) {
+          setAgentLoadingComplete(app, text.replace(/^.*ANALYSIS_DONE:/s, "Готово:"));
+        }
+        if (text.includes("ANALYSIS_ERROR")) {
+          setAgentLoadingError(app, text.replace(/^.*ANALYSIS_ERROR:/s, "Ошибка:"));
+        }
       }
     };
 
@@ -268,8 +330,8 @@
     observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
     window.setInterval(() => {
       const modal = app.querySelector("#agent-loading-modal");
-      if (modal && !modal.hidden) poll();
-    }, 600);
+      if ((modal && !modal.hidden) || document.getElementById("agent-run-payload")) poll();
+    }, 700);
   }
 
   let agentLoadingTimer = null;
@@ -298,8 +360,8 @@
     const phrases = [
       "Загружаем файл в runtime агента.",
       "Читаем Excel/CSV и проверяем структуру.",
-      "Запускаем tqdm-процесс заглушки.",
-      "Готовим head() таблицы для вывода в консоль.",
+      "Приводим данные к контракту тетрадки.",
+      "Формируем таблицы, графики и KPI.",
       "Ожидаем завершения backend pipeline."
     ];
     let phraseIndex = 0;
@@ -328,10 +390,11 @@
     if (fill) fill.style.width = "100%";
     if (percent) percent.textContent = "100%";
     modal?.classList.add("complete");
+    showAnalysisPreview(app, readBridgeText("agent-run-preview"), message || "Анализ завершен");
     window.setTimeout(() => {
       closeAgentLoadingModal(app);
-      app.querySelector('.nav-btn[data-page="stats"]')?.click();
-    }, 1150);
+      app.querySelector('#analysis-preview-card')?.scrollIntoView({ block: "start" });
+    }, 800);
   }
 
   function setAgentLoadingError(app, message) {
@@ -355,6 +418,71 @@
     modal.hidden = true;
     modal.setAttribute("aria-hidden", "true");
     modal.classList.remove("complete", "warning");
+  }
+
+  function readBridgeText(elementId) {
+    const node = document.getElementById(elementId);
+    if (!node) return "";
+    const textarea = node.querySelector?.("textarea");
+    if (textarea && typeof textarea.value === "string") return textarea.value.trim();
+    return (node.textContent || "").trim();
+  }
+
+  function showAnalysisPreview(app, previewText, statusText) {
+    const card = app.querySelector("#analysis-preview-card");
+    const table = app.querySelector("#analysis-preview-table");
+    const status = app.querySelector("#analysis-preview-status");
+    if (!(card instanceof HTMLElement) || !(table instanceof HTMLTableElement) || !status) return;
+
+    const cleanPreview = String(previewText || "").trim();
+    const parsed = parsePreviewTable(cleanPreview);
+    renderPreviewTable(table, parsed);
+
+    status.textContent = String(statusText || "Анализ завершен").replace(/^.*ANALYSIS_DONE:\s*/s, "Готово: ").slice(0, 180);
+    card.hidden = false;
+    app.classList.add("has-analysis");
+    app.classList.remove("no-analysis");
+  }
+
+  function parsePreviewTable(raw) {
+    const fallback = { columns: ["Сообщение"], rows: [{ "Сообщение": "Шапка файла не получена из backend. Проверьте agent_runner.py и callback start_agent_analysis." }] };
+    if (!raw) return fallback;
+
+    try {
+      const parsed = JSON.parse(raw);
+      const columns = Array.isArray(parsed.columns) ? parsed.columns.map(String) : [];
+      const rows = Array.isArray(parsed.rows) ? parsed.rows : [];
+      if (columns.length && rows.length) return { columns, rows };
+      if (columns.length) return { columns, rows: [] };
+    } catch (_) {
+      // Фолбэк для старого backend: если пришел df.head().to_string(), показываем его
+      // внутри одной табличной колонки, а не бесформенным pre-блоком.
+    }
+
+    const lines = raw.split(/\r?\n/).filter(Boolean);
+    if (!lines.length) return fallback;
+    return {
+      columns: ["Шапка файла"],
+      rows: lines.map((line) => ({ "Шапка файла": line }))
+    };
+  }
+
+  function renderPreviewTable(table, preview) {
+    const columns = Array.isArray(preview.columns) && preview.columns.length ? preview.columns : ["Сообщение"];
+    const rows = Array.isArray(preview.rows) ? preview.rows : [];
+    const thead = table.querySelector("thead");
+    const tbody = table.querySelector("tbody");
+    if (!thead || !tbody) return;
+
+    thead.innerHTML = `<tr>${columns.map((col) => `<th title="${escapeAttr(col)}">${escapeHtml(col)}</th>`).join("")}</tr>`;
+    if (!rows.length) {
+      tbody.innerHTML = `<tr>${columns.map((_, index) => `<td>${index === 0 ? "Нет строк для предпросмотра" : ""}</td>`).join("")}</tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map((row) => `<tr>${columns.map((col) => {
+      const value = row && Object.prototype.hasOwnProperty.call(row, col) ? row[col] : "";
+      return `<td title="${escapeAttr(value)}">${escapeHtml(value)}</td>`;
+    }).join("")}</tr>`).join("");
   }
 
   function addFilesToHistory(app, data, files) {
@@ -385,7 +513,7 @@
     let sortDir = 1;
     let page = 1;
     const filters = {};
-    const keys = ["date", "time", "doc", "type", "category", "counterparty", "inn", "kpp"];
+    const keys = ["idx", "date", "cluster_id", "amount", "transaction_category", "counterparty", "risk_level", "connection_basis", "legal_qualification", "challenge_readiness", "recommendation"];
 
     table.querySelectorAll("th[data-key]").forEach((th) => {
       th.addEventListener("click", () => {
@@ -459,7 +587,7 @@
   function initDownloads(app, data) {
     app.querySelector("#download-transactions")?.addEventListener("click", () => {
       const rows = window.financeDashboardApp?.getFilteredTransactions?.() || data.transactions || [];
-      downloadCsv("transactions.csv", rows, ["date", "time", "doc", "type", "category", "counterparty", "inn", "kpp", "amount"]);
+      downloadCsv("transactions.csv", rows, ["idx", "date", "cluster_id", "amount", "transaction_category", "counterparty", "inn", "risk_level", "connection_basis", "legal_qualification", "challenge_readiness", "recommendation"]);
     });
 
     app.querySelector("#download-legal")?.addEventListener("click", () => {
@@ -512,6 +640,46 @@
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !modal.hidden) closeModal();
     });
+  }
+
+
+  function renderSummary(app, summary, statementSummary, outputSummary) {
+    const stmt = statementSummary || {};
+    const out = outputSummary || {};
+
+    setText(app, "#summary-input-rows", formatInteger(summary.inputRows ?? stmt.inputRows ?? summary.preparedRows ?? 0));
+    setText(app, "#summary-input-columns", formatInteger(summary.inputColumns ?? stmt.inputColumns ?? 0));
+    setText(app, "#summary-date-period", `Период: ${summary.datePeriod || stmt.datePeriod || "не определен"}`);
+    setText(app, "#summary-missing-fields", `Недостающие поля: ${summary.missingCoreFields || stmt.missingCoreFields || "нет"}`);
+
+    const incoming = summary.incomingAmount || stmt.incomingAmount || "0 ₽";
+    const outgoing = summary.outgoingAmount || stmt.outgoingAmount || "0 ₽";
+    setText(app, "#summary-input-turnover", `${incoming} / ${outgoing}`);
+    setText(app, "#summary-net-flow", `Чистый поток: ${summary.netAmount || stmt.netAmount || "0 ₽"}`);
+
+    setText(app, "#summary-unique-counterparties", formatInteger(summary.uniqueCounterparties ?? stmt.uniqueCounterparties ?? 0));
+    setText(app, "#summary-known-inn", `ИНН определены: ${formatInteger(summary.knownInnCount ?? stmt.knownInnCount ?? 0)}`);
+
+    setText(app, "#summary-clusters", formatInteger(summary.clusters ?? stmt.clusters ?? 0));
+    setText(app, "#summary-sampled-rows", `Выбрано для анализа: ${formatInteger(summary.sampledRows ?? stmt.sampledRows ?? 0)}`);
+    const riskCount = Number(summary.highRisk || 0) + Number(summary.mediumRisk || 0);
+    setText(app, "#summary-risk-count", formatInteger(riskCount));
+    setText(app, "#summary-risk-amount", summary.riskAmount || out.riskAmount || "0 ₽");
+    setText(app, "#summary-legal-routes", `Правовые маршруты: ${formatInteger(summary.legalRoutes ?? out.legalRoutes ?? 0)}`);
+    setText(app, "#summary-strong-connections", formatInteger(summary.strongConnections ?? out.strongConnections ?? 0));
+    setText(app, "#summary-documents-required", `Документы к запросу: ${formatInteger(summary.documentsRequired ?? out.documentsRequired ?? 0)}`);
+
+    const metric = app.querySelector(".metric-card strong");
+    if (metric) {
+      metric.textContent = summary.riskAmount || out.riskAmount || metric.textContent || "0 ₽";
+      metric.dataset.finalText = metric.textContent;
+      metric.dataset.countupLocked = "1";
+    }
+  }
+
+  function setText(app, selector, value) {
+    const node = app.querySelector(selector);
+    if (node) node.textContent = String(value ?? "");
   }
 
   function renderDocuments(app, documents) {
@@ -587,15 +755,18 @@
     const xKey = el.dataset.x || "name";
     const yKey = el.dataset.y || "value";
     const unit = el.dataset.unit || "";
-    const maxVal = Number(el.dataset.ymax) || niceMax(Math.max(...rows.map((d) => Number(d[yKey]) || 0)));
+    const dataMax = Math.max(1, ...rows.map((d) => Math.abs(Number(d[yKey]) || 0)));
+    const configuredMax = Number(el.dataset.ymax) || 0;
+    const maxVal = niceMax(Math.max(dataMax, configuredMax));
     const step = innerW / rows.length;
     const barW = Math.min(118, step * 0.66);
     const grid = makeHorizontalGrid(margin, innerW, innerH, maxVal, unit);
     const bars = rows.map((d, i) => {
       const value = Number(d[yKey]) || 0;
+      const safeRatio = maxVal > 0 ? Math.min(Math.abs(value) / maxVal, 1) : 0;
       const x = margin.left + i * step + (step - barW) / 2;
-      const y = margin.top + innerH - (value / maxVal) * innerH;
-      const h = Math.max(0, (value / maxVal) * innerH);
+      const y = margin.top + innerH - safeRatio * innerH;
+      const h = Math.max(0, safeRatio * innerH);
       const labelX = margin.left + i * step + step / 2;
       return `
         <g class="bar-item" style="--i:${i}">
@@ -617,10 +788,11 @@
     const xKey = el.dataset.x || "month";
     const unit = el.dataset.unit || "";
     const series = parseSeries(el.dataset.series || "incoming:Поступления,outgoing:Расходные операции");
-    const maxByData = Math.max(...rows.flatMap((row) => series.map((s) => Number(row[s.key]) || 0)));
-    const maxVal = Number(el.dataset.ymax) || niceMax(maxByData);
+    const maxByData = Math.max(1, ...rows.flatMap((row) => series.map((s) => Math.abs(Number(row[s.key]) || 0))));
+    const configuredMax = Number(el.dataset.ymax) || 0;
+    const maxVal = niceMax(Math.max(maxByData, configuredMax));
     const xFor = (i) => margin.left + (rows.length === 1 ? innerW / 2 : (i / (rows.length - 1)) * innerW);
-    const yFor = (v) => margin.top + innerH - (Number(v) / maxVal) * innerH;
+    const yFor = (v) => margin.top + innerH - Math.min(Math.abs(Number(v) || 0) / maxVal, 1) * innerH;
     const grid = makeHorizontalGrid(margin, innerW, innerH, maxVal, unit) + makeVerticalGrid(margin, innerW, innerH, rows.length);
     const labels = rows.map((d, i) => `<text class="axis-label" x="${xFor(i).toFixed(1)}" y="${height - 16}" text-anchor="middle">${escapeSvg(d[xKey])}</text>`).join("");
     const legend = makeLegend(width, series);
@@ -648,9 +820,11 @@
     const innerH = height - margin.top - margin.bottom;
     const xKey = el.dataset.x || "bucket";
     const yKey = el.dataset.y || "value";
-    const maxVal = Number(el.dataset.ymax) || niceMax(Math.max(...rows.map((d) => Number(d[yKey]) || 0)));
+    const dataMax = Math.max(1, ...rows.map((d) => Math.abs(Number(d[yKey]) || 0)));
+    const configuredMax = Number(el.dataset.ymax) || 0;
+    const maxVal = niceMax(Math.max(dataMax, configuredMax));
     const xFor = (i) => margin.left + (rows.length === 1 ? innerW / 2 : (i / (rows.length - 1)) * innerW);
-    const yFor = (v) => margin.top + innerH - (Number(v) / maxVal) * innerH;
+    const yFor = (v) => margin.top + innerH - Math.min(Math.abs(Number(v) || 0) / maxVal, 1) * innerH;
     const points = rows.map((d, i) => [xFor(i), yFor(d[yKey]), Number(d[yKey]) || 0, d[xKey]]);
     const path = smoothPath(points);
     const clipId = uniqueChartId("areaClip");
@@ -682,9 +856,9 @@
       const angle = (val / total) * 360;
       const arc = describeArc(cx, cy, r, start, start + Math.max(angle - 1.5, 0));
       start += angle;
-      return `<path class="donut-arc" style="--i:${i}" d="${arc}" fill="none" stroke="${palette[i % palette.length]}" stroke-width="${stroke}" stroke-linecap="round" data-tooltip="${escapeAttr(label)}: ${val}%"></path>`;
+      return `<path class="donut-arc" style="--i:${i}" d="${arc}" fill="none" stroke="${palette[i % palette.length]}" stroke-width="${stroke}" stroke-linecap="round" data-tooltip="${escapeAttr(label)}: ${val}"></path>`;
     }).join("");
-    const legend = rows.map((d) => `<div><span>${escapeHtml(d[nameKey])}</span><b>${escapeHtml(d[valueKey])}%</b></div>`).join("");
+    const legend = rows.map((d) => `<div><span>${escapeHtml(d[nameKey])}</span><b>${escapeHtml(d[valueKey])}</b></div>`).join("");
     el.innerHTML = `<div class="donut-grid">${svgWrap(width, height, arcs + `<circle class="donut-hole" cx="${cx}" cy="${cy}" r="${r - stroke / 2}" fill="#fff"></circle>`)}<div class="donut-legend">${legend}</div></div>`;
     attachTooltip(el);
     animateChart(el);
@@ -796,129 +970,71 @@
 
   function initRevealAnimations(app) {
     const nodes = Array.from(app.querySelectorAll(".page.active .card, .page.active .two-col-grid"));
-    nodes.forEach((node, index) => {
+    nodes.forEach((node) => {
       if (!(node instanceof HTMLElement)) return;
-      node.classList.add("reveal-item");
-      node.style.setProperty("--reveal-delay", `${Math.min(index, 6) * 55}ms`);
-
-      if (node.classList.contains("reveal-visible")) {
-        queueNestedAnimations(node, 180);
-        return;
-      }
-
-      if (!("IntersectionObserver" in window)) {
-        node.classList.add("reveal-visible");
-        queueNestedAnimations(node, 220);
-        return;
-      }
-
-      getRevealObserver().observe(node);
+      node.classList.add("reveal-item", "reveal-visible");
+      node.style.removeProperty("--reveal-delay");
+      queueNestedAnimations(node, 0);
     });
   }
 
   function getRevealObserver() {
-    if (revealObserver || !("IntersectionObserver" in window)) return revealObserver;
-    revealObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting || entry.intersectionRatio < 0.08) return;
-        const node = entry.target;
-        if (!(node instanceof HTMLElement)) return;
-        node.classList.add("reveal-visible");
-        queueNestedAnimations(node, 420);
-        revealObserver.unobserve(node);
-      });
-    }, { threshold: [0.08, 0.18, 0.34], rootMargin: "0px 0px -7% 0px" });
-    return revealObserver;
+    return null;
   }
 
-  function queueNestedAnimations(container, delay = 360) {
+  function queueNestedAnimations(container, delay = 0) {
     if (!(container instanceof HTMLElement)) return;
     const charts = Array.from(container.querySelectorAll(".chart-shell"));
-    charts.forEach((chart, index) => {
-      if (!(chart instanceof HTMLElement) || chart.dataset.chartAnimated === "1") return;
-      window.setTimeout(() => startChartAnimation(chart), delay + index * 120);
+    charts.forEach((chart) => {
+      if (chart instanceof HTMLElement) startChartAnimation(chart);
     });
 
     const numbers = Array.from(container.querySelectorAll("[data-countup-prepared=\"1\"]"));
-    numbers.forEach((node, index) => {
-      if (!(node instanceof HTMLElement) || node.dataset.countupAnimated === "1") return;
-      window.setTimeout(() => animateCountup(node), delay + 120 + index * 90);
+    numbers.forEach((node) => {
+      if (node instanceof HTMLElement) animateCountup(node);
     });
   }
 
   function getChartObserver() {
-    if (chartObserver || !("IntersectionObserver" in window)) return chartObserver;
-    chartObserver = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (entry.isIntersecting && entry.intersectionRatio >= 0.18) {
-          startChartAnimation(entry.target);
-          chartObserver.unobserve(entry.target);
-        }
-      });
-    }, { threshold: [0.18, 0.35, 0.6], rootMargin: "0px 0px -8% 0px" });
-    return chartObserver;
+    return null;
   }
 
   function animateChart(root) {
-    root.classList.remove("chart-ready");
-    root.dataset.chartAnimated = "0";
+    if (!(root instanceof HTMLElement)) return;
     root.dataset.animationPrepared = "1";
+    root.dataset.chartAnimated = "1";
     preparePathDraw(root);
-
-    const revealContainer = root.closest(".reveal-item, .card, .two-col-grid");
-    if (revealContainer) {
-      if (revealContainer.classList.contains("reveal-visible") && isElementActuallyVisible(root)) {
-        queueNestedAnimations(revealContainer, 260);
-      }
-      return;
-    }
-
-    const observer = getChartObserver();
-    if (observer) observer.observe(root);
-    else if (isElementActuallyVisible(root)) startChartAnimation(root);
+    startChartAnimation(root);
   }
 
   function preparePathDraw(root) {
-    const prefersReducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
     root.querySelectorAll(".chart-reveal-clip").forEach((clip) => {
       const finalWidth = Number(clip.dataset.finalWidth || clip.getAttribute("width") || 0);
       clip.dataset.finalWidth = String(finalWidth);
-      clip.setAttribute("width", prefersReducedMotion ? String(finalWidth) : "0");
+      clip.setAttribute("width", String(finalWidth));
     });
-    const hasRevealClip = !!root.querySelector(".chart-reveal-clip");
-    const drawable = root.querySelectorAll(hasRevealClip ? ".donut-arc" : ".chart-line, .donut-arc");
-    drawable.forEach((path, i) => {
-      if (!path.getTotalLength) return;
-      let length = 0;
-      try { length = Math.ceil(path.getTotalLength()); } catch (_) { length = 0; }
-      if (!Number.isFinite(length) || length <= 0) return;
-      path.style.setProperty("stroke-dasharray", `${length}`, "important");
-      path.style.setProperty("stroke-dashoffset", prefersReducedMotion ? "0" : `${length}`, "important");
-      path.style.setProperty("--i", String(i));
+    root.querySelectorAll(".chart-line, .donut-arc").forEach((path, i) => {
+      if (path.style) {
+        path.style.setProperty("stroke-dasharray", "none", "important");
+        path.style.setProperty("stroke-dashoffset", "0", "important");
+        path.style.setProperty("--i", String(i));
+      }
     });
-    if (prefersReducedMotion) root.classList.add("chart-ready");
+    root.classList.add("chart-ready");
   }
 
   function startChartAnimation(root) {
-    if (!root || root.dataset.chartAnimated === "1") return;
+    if (!(root instanceof HTMLElement)) return;
     root.dataset.chartAnimated = "1";
-    const prefersReducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (prefersReducedMotion) {
-      root.querySelectorAll(".chart-reveal-clip").forEach((clip) => {
-        clip.setAttribute("width", clip.dataset.finalWidth || clip.getAttribute("width") || "0");
-      });
-      root.classList.add("chart-ready");
-      return;
-    }
-    requestAnimationFrame(() => {
-      requestAnimationFrame(() => {
-        animateClipRects(root);
-        root.querySelectorAll(".chart-line, .donut-arc").forEach((path) => {
-          path.style.setProperty("stroke-dashoffset", "0", "important");
-        });
-        root.classList.add("chart-ready");
-      });
+    root.querySelectorAll(".chart-reveal-clip").forEach((clip) => {
+      clip.setAttribute("width", clip.dataset.finalWidth || clip.getAttribute("width") || "0");
+      clip.dataset.clipAnimated = "1";
     });
+    root.querySelectorAll(".chart-line, .donut-arc").forEach((path) => {
+      path.style.setProperty("stroke-dasharray", "none", "important");
+      path.style.setProperty("stroke-dashoffset", "0", "important");
+    });
+    root.classList.add("chart-ready");
   }
 
   function initCountups(app) {
@@ -932,34 +1048,10 @@
       node.dataset.countupPrefix = parsed.prefix;
       node.dataset.countupSuffix = parsed.suffix;
       node.dataset.countupDecimals = String(parsed.decimals);
-      node.textContent = `${parsed.prefix}${formatCountupNumber(0, parsed.decimals)}${parsed.suffix}`;
-      node.dataset.countupAnimated = "0";
       node.dataset.countupPrepared = "1";
       node.dataset.countupLocked = "1";
-
-      const revealContainer = node.closest(".reveal-item, .card, .two-col-grid");
-      if (revealContainer) {
-        if (revealContainer.classList.contains("reveal-visible") && isElementActuallyVisible(node)) {
-          queueNestedAnimations(revealContainer, 320);
-        }
-        return;
-      }
-
-      if (!("IntersectionObserver" in window)) {
-        animateCountup(node);
-        return;
-      }
-      if (!countupObserver) {
-        countupObserver = new IntersectionObserver((entries) => {
-          entries.forEach((entry) => {
-            if (entry.isIntersecting && entry.intersectionRatio >= 0.3) {
-              animateCountup(entry.target);
-              countupObserver.unobserve(entry.target);
-            }
-          });
-        }, { threshold: [0.3, 0.55], rootMargin: "0px 0px -10% 0px" });
-      }
-      countupObserver.observe(node);
+      node.textContent = `${parsed.prefix}${formatCountupNumber(parsed.value, parsed.decimals)}${parsed.suffix}`;
+      node.dataset.countupAnimated = "1";
     });
   }
 
@@ -988,48 +1080,30 @@
   }
 
   function animateCountup(node) {
-    if (!(node instanceof HTMLElement) || node.dataset.countupAnimated === "1") return;
-    node.dataset.countupAnimated = "1";
+    if (!(node instanceof HTMLElement)) return;
     const value = Number(node.dataset.countupValue || 0);
     const prefix = node.dataset.countupPrefix || "";
     const suffix = node.dataset.countupSuffix || "";
     const decimals = Number(node.dataset.countupDecimals || 0);
-    const prefersReducedMotion = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    if (prefersReducedMotion) {
-      node.textContent = `${prefix}${formatCountupNumber(value, decimals)}${suffix}`;
-      return;
-    }
-    const duration = 1180;
-    const start = performance.now();
-    function tick(now) {
-      const t = Math.min(1, (now - start) / duration);
-      const eased = 1 - Math.pow(1 - t, 3);
-      node.textContent = `${prefix}${formatCountupNumber(value * eased, decimals)}${suffix}`;
-      if (t < 1) requestAnimationFrame(tick);
-    }
-    requestAnimationFrame(tick);
+    node.textContent = `${prefix}${formatCountupNumber(value, decimals)}${suffix}`;
+    node.dataset.countupAnimated = "1";
   }
 
   function formatCountupNumber(value, decimals) {
     return Number(value).toFixed(decimals).replace(".", ",");
   }
 
+  function formatInteger(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "0";
+    return Math.round(number).toLocaleString("ru-RU");
+  }
+
   function animateClipRects(root) {
     root.querySelectorAll(".chart-reveal-clip").forEach((clip) => {
-      if (clip.dataset.clipAnimated === "1") return;
-      clip.dataset.clipAnimated = "1";
       const targetWidth = Number(clip.dataset.finalWidth || 0);
-      if (!Number.isFinite(targetWidth) || targetWidth <= 0) return;
-      const duration = Number(clip.dataset.duration || (root.classList.contains("chart-type-cashflow") ? 2800 : 1500));
-      const start = performance.now();
-      function tick(now) {
-        const t = Math.min(1, (now - start) / duration);
-        const eased = easeInOutCubic(t);
-        clip.setAttribute("width", String(targetWidth * eased));
-        if (t < 1) requestAnimationFrame(tick);
-        else clip.setAttribute("width", String(targetWidth));
-      }
-      requestAnimationFrame(tick);
+      if (Number.isFinite(targetWidth) && targetWidth > 0) clip.setAttribute("width", String(targetWidth));
+      clip.dataset.clipAnimated = "1";
     });
   }
 
@@ -1066,6 +1140,14 @@
       if (parts.length === 3) return `${parts[2]}-${parts[1]}-${parts[0]}`;
     }
     if (key === "time") return String(value || "");
+    if (["cluster_id", "risk_level"].includes(key)) {
+      const number = String(value ?? "").replace(/[^0-9.-]/g, "");
+      if (number) return Number(number);
+    }
+    if (key === "amount") {
+      const number = String(value ?? "").replace(/[^0-9,.-]/g, "").replace(",", ".");
+      if (number) return Number(number);
+    }
     const number = String(value ?? "").replace(/\D/g, "");
     if (["inn", "kpp"].includes(key) && number) return Number(number);
     return String(value ?? "").toLowerCase();
@@ -1139,4 +1221,5 @@
 
   const observer = new MutationObserver(() => boot());
   observer.observe(document.documentElement, { childList: true, subtree: true });
+  // Fixed10: low-end stable mode. Animations are intentionally disabled; all elements render immediately.
 })();

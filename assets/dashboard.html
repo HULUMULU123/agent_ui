@@ -31,7 +31,7 @@
         <button class="stage-item active" type="button" data-stage="import">
           <span class="stage-dot">1</span>
           <h3>Импорт выписки</h3>
-          <p>Загрузите PDF, CSV или XLS, мы проверим корректность и подготовим структуру данных.</p>
+          <p>Загрузите CSV или XLS/XLSX, мы проверим корректность и подготовим структуру данных.</p>
         </button>
         <div class="stage-line done"></div>
         <button class="stage-item done" type="button" data-stage="analysis">
@@ -64,9 +64,9 @@
 
       <section class="card upload-card">
         <h2>Загрузка документа</h2>
-        <p class="muted-text">Вставьте ваш файл, а остальное оставьте нам — Агент сам поймет структуру выписки и подготовит следующий шаг.</p>
+        <p class="muted-text">Загрузите Excel/CSV. В тестовом режиме агент не запускается и интерфейс заполняется mock-данными. В рабочем режиме файл проходит через контракт тетрадки агента и формирует новый payload для дашборда.</p>
         <div class="dropzone" id="dropzone">
-          <input id="file-picker" type="file" multiple accept=".pdf,.csv,.xls,.xlsx" hidden>
+          <input id="file-picker" type="file" multiple accept=".csv,.xls,.xlsx" hidden>
           <div class="dropzone-inner">
             <div class="drop-icon">▣</div>
             <strong>Перетащите выписку сюда</strong>
@@ -75,6 +75,10 @@
               <button class="secondary-btn" type="button" id="choose-file-btn">Выбрать файл</button>
               <button class="primary-btn" type="button" id="run-analysis-btn">Запустить анализ</button>
             </div>
+            <label class="test-mode-toggle" for="test-mode-checkbox">
+              <input id="test-mode-checkbox" type="checkbox" checked>
+              <span>Тестовый режим: отключить агента и показать mock-данные</span>
+            </label>
           </div>
         </div>
 
@@ -88,6 +92,44 @@
         </div>
       </section>
 
+      <section class="card analysis-preview-card" id="analysis-preview-card" hidden>
+        <div class="card-header-row">
+          <h2>Шапка загруженной выписки</h2>
+          <span class="analysis-preview-status" id="analysis-preview-status">Анализ завершен</span>
+        </div>
+        <p class="muted-text">Предпросмотр первых строк файла появляется только после запуска анализа. Полная статистика и результат агента доступны на странице «Статистика».</p>
+        <div id="analysis-preview-table-wrap" class="analysis-preview-table-wrap">
+          <table id="analysis-preview-table" class="soft-table preview-table">
+            <thead></thead>
+            <tbody><tr><td>Нет данных для отображения.</td></tr></tbody>
+          </table>
+        </div>
+      </section>
+
+    </section>
+
+    <section class="page" data-view="stats">
+      <section class="card stats-empty-card" id="stats-empty-card">
+        <h2>Статистика появится после анализа выписки</h2>
+        <p class="muted-text">Сначала загрузите файл на главной странице и нажмите «Запустить анализ». До этого момента интерфейс не показывает фиктивные KPI по неизвестной выписке.</p>
+      </section>
+
+      <div class="stats-content requires-analysis">
+      <section class="agent-summary-grid statement-summary-grid">
+        <div class="card agent-summary-card"><span>Строк во входной выписке</span><strong id="summary-input-rows">0</strong><p id="summary-date-period">Период не определен</p></div>
+        <div class="card agent-summary-card"><span>Колонок / качество входа</span><strong id="summary-input-columns">0</strong><p id="summary-missing-fields">Проверка обязательных полей</p></div>
+        <div class="card agent-summary-card"><span>Входящий / исходящий оборот</span><strong id="summary-input-turnover">0 ₽</strong><p id="summary-net-flow">Чистый поток: 0 ₽</p></div>
+        <div class="card agent-summary-card"><span>Контрагенты / ИНН</span><strong id="summary-unique-counterparties">0</strong><p id="summary-known-inn">ИНН определены: 0</p></div>
+      </section>
+
+      <section class="agent-summary-grid output-summary-grid">
+        <div class="card agent-summary-card"><span>Кластеров / выборка LLM</span><strong id="summary-clusters">0</strong><p id="summary-sampled-rows">Выбрано для анализа: 0</p></div>
+        <div class="card agent-summary-card"><span>Средний и высокий риск</span><strong id="summary-risk-count">0</strong><p>Операции, требующие внимания</p></div>
+        <div class="card agent-summary-card"><span>Сумма риска</span><strong id="summary-risk-amount">0 ₽</strong><p id="summary-legal-routes">Правовые маршруты: 0</p></div>
+        <div class="card agent-summary-card"><span>Связи / документы</span><strong id="summary-strong-connections">0</strong><p id="summary-documents-required">Документы к запросу: 0</p></div>
+      </section>
+
+
       <section class="card table-card">
         <div class="card-header-row">
           <h2>Таблица транзакций</h2>
@@ -97,24 +139,30 @@
           <table class="smart-table" id="transactions-table">
             <thead>
               <tr>
+                <th data-key="idx">IDX <span class="sort-mark">↕</span></th>
                 <th data-key="date">Дата <span class="sort-mark">↕</span></th>
-                <th data-key="time">Время <span class="sort-mark">↕</span></th>
-                <th data-key="doc">Документ <span class="sort-mark">↕</span></th>
-                <th data-key="type">Тип <span class="sort-mark">↕</span></th>
-                <th data-key="category">Категория <span class="sort-mark">↕</span></th>
+                <th data-key="cluster_id">Кластер <span class="sort-mark">↕</span></th>
+                <th data-key="amount">Сумма <span class="sort-mark">↕</span></th>
+                <th data-key="transaction_category">Категория <span class="sort-mark">↕</span></th>
                 <th data-key="counterparty">Контрагент <span class="sort-mark">↕</span></th>
-                <th data-key="inn">ИНН <span class="sort-mark">↕</span></th>
-                <th data-key="kpp">КПП <span class="sort-mark">↕</span></th>
+                <th data-key="risk_level">Риск <span class="sort-mark">↕</span></th>
+                <th data-key="connection_basis">Связь <span class="sort-mark">↕</span></th>
+                <th data-key="legal_qualification">Квалификация <span class="sort-mark">↕</span></th>
+                <th data-key="challenge_readiness">Готовность <span class="sort-mark">↕</span></th>
+                <th data-key="recommendation">Рекомендация <span class="sort-mark">↕</span></th>
               </tr>
               <tr class="filter-row">
+                <td><input data-filter="idx" aria-label="Фильтр IDX"></td>
                 <td><input data-filter="date" aria-label="Фильтр даты"></td>
-                <td><input data-filter="time" aria-label="Фильтр времени"></td>
-                <td><input data-filter="doc" aria-label="Фильтр документа"></td>
-                <td><input data-filter="type" aria-label="Фильтр типа"></td>
-                <td><input data-filter="category" aria-label="Фильтр категории"></td>
+                <td><input data-filter="cluster_id" aria-label="Фильтр кластера"></td>
+                <td><input data-filter="amount" aria-label="Фильтр суммы"></td>
+                <td><input data-filter="transaction_category" aria-label="Фильтр категории"></td>
                 <td><input data-filter="counterparty" aria-label="Фильтр контрагента"></td>
-                <td><input data-filter="inn" aria-label="Фильтр ИНН"></td>
-                <td><input data-filter="kpp" aria-label="Фильтр КПП"></td>
+                <td><input data-filter="risk_level" aria-label="Фильтр риска"></td>
+                <td><input data-filter="connection_basis" aria-label="Фильтр связи"></td>
+                <td><input data-filter="legal_qualification" aria-label="Фильтр квалификации"></td>
+                <td><input data-filter="challenge_readiness" aria-label="Фильтр готовности"></td>
+                <td><input data-filter="recommendation" aria-label="Фильтр рекомендации"></td>
               </tr>
             </thead>
             <tbody></tbody>
@@ -133,17 +181,16 @@
 
       <section class="two-col-grid">
         <div class="card chart-card small-chart-card">
-          <h2>Суммы транзакций за один день</h2>
+          <h2>Распределение сумм операций</h2>
           <div class="chart-shell" data-chart="area" data-source="dailyAmountBuckets" data-x="bucket" data-y="value" data-ymax="8" data-unit=""></div>
         </div>
         <div class="card chart-card small-chart-card">
-          <h2>Активность по дням</h2>
+          <h2>Активность операций по дням</h2>
           <div class="chart-shell" data-chart="line" data-source="dailyActivity" data-x="day" data-series="incoming:Поступления,outgoing:Расходные операции" data-ymax="16"></div>
         </div>
       </section>
-    </section>
 
-    <section class="page" data-view="stats">
+
       <section class="card chart-card big-chart-card">
         <h2>Динамика движения средств</h2>
         <p class="muted-text">Следим за балансом поступлений и списаний по месяцам.</p>
@@ -151,7 +198,7 @@
       </section>
 
       <section class="card chart-card big-chart-card">
-        <h2>Структура расходов по категориям</h2>
+        <h2>Структура операций по категориям</h2>
         <div class="chart-shell" data-chart="bar" data-source="expenseCategories" data-x="category" data-y="value" data-ymax="8" data-unit=" млн"></div>
       </section>
 
@@ -159,7 +206,7 @@
         <div class="card metric-card">
           <span>ТОП-4 транзакций по сумме</span>
           <strong class="countup" data-value="18.2" data-decimals="1" data-suffix=" млн ₽">18,2 млн ₽</strong>
-          <p>Увеличение транзакций за последние 5 месяцев на +42%</p>
+          <p>Сумма операций, выбранных агентом для детальной проверки</p>
         </div>
         <div class="card chart-card mini-chart-card">
           <h2>Топ контрагентов по объему</h2>
@@ -170,14 +217,30 @@
           <div class="chart-shell" data-chart="donut" data-source="riskDistribution" data-name="level" data-y="value"></div>
         </div>
         <div class="card signals-card">
-          <h2>Аномалии и сигналы</h2>
+          <h2>Сигналы из связей и квалификации</h2>
           <div id="signals-list" class="signals-list"></div>
         </div>
       </section>
 
       <section class="card chart-card big-chart-card">
-        <h2>Динамика новых контрагентов</h2>
+        <h2>Динамика операций и контрагентов к проверке</h2>
         <div class="chart-shell chart-tall" data-chart="line" data-source="newCounterparties" data-x="week" data-series="newPartners:Новые партнеры,checkPartners:Контрагенты для проверки" data-ymax="12"></div>
+      </section>
+
+      <section class="two-col-grid">
+        <div class="card chart-card small-chart-card">
+          <h2>Правовые квалификации</h2>
+          <div class="chart-shell" data-chart="bar" data-source="legalQualificationDistribution" data-x="route" data-y="value" data-ymax="8" data-unit=""></div>
+        </div>
+        <div class="card chart-card small-chart-card">
+          <h2>Сила связи сторон</h2>
+          <div class="chart-shell" data-chart="bar" data-source="connectionStrengthDistribution" data-x="strength" data-y="value" data-ymax="8" data-unit=""></div>
+        </div>
+      </section>
+
+      <section class="card chart-card big-chart-card">
+        <h2>Готовность к оспариванию</h2>
+        <div class="chart-shell" data-chart="bar" data-source="challengeReadinessDistribution" data-x="readiness" data-y="value" data-ymax="8" data-unit=""></div>
       </section>
 
       <section class="card registry-card">
@@ -189,6 +252,8 @@
           </table>
         </div>
       </section>
+
+      </div>
     </section>
 
     <section class="page" data-view="history">
@@ -251,7 +316,7 @@
       <div class="agent-loading-copy">
         <span class="agent-loading-eyebrow">AI Agent Runtime</span>
         <h2 id="agent-loading-title">Запуск анализа выписки</h2>
-        <p id="agent-loading-text">Инициализируем агента и передаем файл в backend.</p>
+        <p id="agent-loading-text">Передаем файл в backend. Режим зависит от переключателя тестового запуска.</p>
       </div>
       <div class="agent-progress-track" aria-hidden="true"><span id="agent-progress-fill"></span></div>
       <div class="agent-loading-meta">

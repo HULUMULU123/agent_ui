@@ -27,7 +27,6 @@ def _clean_none(obj: Any) -> Any:
         return {str(k): _clean_none(v) for k, v in obj.items()}
     if isinstance(obj, list):
         return [_clean_none(v) for v in obj]
-    # pandas/numpy NaN support without importing pandas/numpy
     try:
         if obj != obj:
             return None
@@ -45,30 +44,31 @@ def build_dashboard_payload(
     legal_report: Any = None,
     counterparty_registry: Any = None,
     modal: dict[str, dict[str, str]] | None = None,
+    summary: dict[str, Any] | None = None,
+    statement_summary: dict[str, Any] | None = None,
+    output_summary: dict[str, Any] | None = None,
     meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    Single contract for moving results from a Jupyter agent into the Gradio UI.
+    Единый контракт передачи данных из Jupyter в Gradio UI.
 
-    Minimal required shape:
-    {
-      "transactions": [{"date", "time", "doc", "type", "category", "counterparty", "inn", "kpp", "amount"}],
-      "charts": {
-        "cashFlowMonthly": [{"month", "incoming", "outgoing"}],
-        "expenseCategories": [{"category", "value"}],
-        "topCounterparties": [{"name", "value"}],
-        "riskDistribution": [{"level", "value"}],
-        "newCounterparties": [{"week", "newPartners", "checkPartners"}],
-        "dailyAmountBuckets": [{"bucket", "value"}],
-        "dailyActivity": [{"day", "incoming", "outgoing"}]
-      }
-    }
+    Минимальные ключи таблицы transactions:
+    idx, date, cluster_id, amount, transaction_category, counterparty,
+    inn, risk_level, connection_basis, legal_qualification,
+    challenge_readiness, recommendation.
+
+    Сигналы должны формироваться не из anomaly_score напрямую, а из результата агента:
+    connections_basis / connection_basis, legal_qualification, challenge_criteria,
+    recommendation.documents_to_request.
     """
     payload = {
         "meta": meta or {
             "appTitle": "Финансовый анализ",
-            "appSubtitle": "банковских выписок",
+            "appSubtitle": "агент банкротного риска операций",
         },
+        "summary": summary or {},
+        "statementSummary": statement_summary or {},
+        "outputSummary": output_summary or {},
         "documents": _records(documents),
         "transactions": _records(transactions),
         "charts": charts or {},

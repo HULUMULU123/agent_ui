@@ -1,115 +1,492 @@
 {
   "meta": {
     "appTitle": "Финансовый анализ",
-    "appSubtitle": "банковских выписок",
-    "lastUpdated": "2024-11-12T09:12:00"
+    "appSubtitle": "агент банкротного риска операций",
+    "lastUpdated": "2026-06-26T01:34:52",
+    "mode": "test_mock",
+    "sourceFile": "mock_statement.xlsx"
+  },
+  "summary": {
+    "inputRows": 7,
+    "inputColumns": 11,
+    "preparedRows": 7,
+    "sampledRows": 7,
+    "clusters": 6,
+    "datePeriod": "11.07.2024 — 25.10.2024",
+    "incomingAmount": "5 700 000 ₽",
+    "outgoingAmount": "14 880 000 ₽",
+    "netAmount": "-9 180 000 ₽",
+    "uniqueCounterparties": 8,
+    "missingCoreFields": "нет",
+    "knownInnCount": 14,
+    "highRisk": 2,
+    "mediumRisk": 0,
+    "lowRisk": 5,
+    "riskAmount": "12 050 000 ₽",
+    "legalRoutes": 3,
+    "strongConnections": 2,
+    "documentsRequired": 8,
+    "challengeReady": 2,
+    "warnings": []
+  },
+  "statementSummary": {
+    "inputRows": 7,
+    "inputColumns": 11,
+    "preparedRows": 7,
+    "sampledRows": 7,
+    "datePeriod": "11.07.2024 — 25.10.2024",
+    "incomingAmount": "5 700 000 ₽",
+    "outgoingAmount": "14 880 000 ₽",
+    "netAmount": "-9 180 000 ₽",
+    "uniqueCounterparties": 8,
+    "knownInnCount": 14,
+    "clusters": 6,
+    "missingCoreFields": "нет",
+    "warningsCount": 0
+  },
+  "outputSummary": {
+    "analyzedRows": 7,
+    "legalRoutes": 3,
+    "strongConnections": 2,
+    "documentsRequired": 8,
+    "challengeReady": 2,
+    "riskAmount": "12 050 000 ₽"
   },
   "documents": [
-    {"document": "statement_november.pdf", "type": "PDF", "uploaded": "12.11.2024, 09:12", "status": "загружено", "statusClass": "green"},
-    {"document": "counterparty_registry.csv", "type": "CSV", "uploaded": "11.11.2024, 18:40", "status": "в очереди", "statusClass": "yellow"},
-    {"document": "statement_october.xlsx", "type": "XLSX", "uploaded": "05.11.2024, 10:28", "status": "архив", "statusClass": "gray"}
+    {
+      "document": "mock_statement.xlsx",
+      "type": "XLSX",
+      "uploaded": "26.06.2026, 01:34",
+      "status": "проанализирован",
+      "statusClass": "green"
+    }
   ],
   "transactions": [
-    {"date":"11.11.2024","time":"09:10","doc":"DOC-12010","type":"Поступление","category":"Налоги","counterparty":"Контрагент 11","inn":"774500170","kpp":"775500110","amount":2100000},
-    {"date":"12.11.2024","time":"10:17","doc":"DOC-12011","type":"Списание","category":"Закупки","counterparty":"Контрагент 12","inn":"774500187","kpp":"775500121","amount":-1450000},
-    {"date":"13.11.2024","time":"11:24","doc":"DOC-12012","type":"Поступление","category":"Зарплата","counterparty":"Контрагент 13","inn":"774500204","kpp":"775500132","amount":850000},
-    {"date":"14.11.2024","time":"12:31","doc":"DOC-12013","type":"Списание","category":"Подрядчики","counterparty":"Контрагент 14","inn":"774500221","kpp":"775500143","amount":-980000},
-    {"date":"15.11.2024","time":"13:38","doc":"DOC-12014","type":"Поступление","category":"Налоги","counterparty":"Контрагент 15","inn":"774500238","kpp":"775500154","amount":1300000},
-    {"date":"16.11.2024","time":"14:45","doc":"DOC-12015","type":"Списание","category":"Инвестиции","counterparty":"Контрагент 16","inn":"774500255","kpp":"775500165","amount":-760000},
-    {"date":"17.11.2024","time":"15:52","doc":"DOC-12016","type":"Поступление","category":"Операционные расходы","counterparty":"Контрагент 17","inn":"774500272","kpp":"775500176","amount":670000},
-    {"date":"18.11.2024","time":"16:59","doc":"DOC-12017","type":"Списание","category":"Подрядчики","counterparty":"Контрагент 18","inn":"774500289","kpp":"775500187","amount":-1550000},
-    {"date":"19.11.2024","time":"09:06","doc":"DOC-12018","type":"Поступление","category":"Налоги","counterparty":"Контрагент 19","inn":"774500306","kpp":"775500198","amount":1880000},
-    {"date":"20.11.2024","time":"10:13","doc":"DOC-12019","type":"Списание","category":"Закупки","counterparty":"Контрагент 20","inn":"774500323","kpp":"775500209","amount":-1210000},
-    {"date":"21.11.2024","time":"11:20","doc":"DOC-12020","type":"Поступление","category":"Зарплата","counterparty":"Контрагент 21","inn":"774500340","kpp":"775500220","amount":770000},
-    {"date":"22.11.2024","time":"12:27","doc":"DOC-12021","type":"Списание","category":"Подрядчики","counterparty":"Контрагент 22","inn":"774500357","kpp":"775500231","amount":-1840000},
-    {"date":"23.11.2024","time":"13:34","doc":"DOC-12022","type":"Поступление","category":"Налоги","counterparty":"Контрагент 23","inn":"774500374","kpp":"775500242","amount":2460000},
-    {"date":"24.11.2024","time":"14:41","doc":"DOC-12023","type":"Списание","category":"Инвестиции","counterparty":"Контрагент 24","inn":"774500391","kpp":"775500253","amount":-910000},
-    {"date":"25.11.2024","time":"15:48","doc":"DOC-12024","type":"Поступление","category":"Операционные расходы","counterparty":"Контрагент 25","inn":"774500408","kpp":"775500264","amount":1320000},
-    {"date":"26.11.2024","time":"16:55","doc":"DOC-12025","type":"Списание","category":"Подрядчики","counterparty":"Контрагент 26","inn":"774500425","kpp":"775500275","amount":-2450000},
-    {"date":"27.11.2024","time":"09:02","doc":"DOC-12026","type":"Поступление","category":"Налоги","counterparty":"Контрагент 27","inn":"774500442","kpp":"775500286","amount":1620000},
-    {"date":"28.11.2024","time":"10:09","doc":"DOC-12027","type":"Списание","category":"Закупки","counterparty":"Контрагент 28","inn":"774500459","kpp":"775500297","amount":-1040000},
-    {"date":"29.11.2024","time":"11:16","doc":"DOC-12028","type":"Поступление","category":"Зарплата","counterparty":"Контрагент 29","inn":"774500476","kpp":"775500308","amount":1120000},
-    {"date":"30.11.2024","time":"12:23","doc":"DOC-12029","type":"Списание","category":"Подрядчики","counterparty":"Контрагент 30","inn":"774500493","kpp":"775500319","amount":-3200000},
-    {"date":"01.12.2024","time":"13:30","doc":"DOC-12030","type":"Поступление","category":"Налоги","counterparty":"ООО «Астра»","inn":"774500510","kpp":"775500330","amount":8600000},
-    {"date":"02.12.2024","time":"14:37","doc":"DOC-12031","type":"Списание","category":"Инвестиции","counterparty":"ИП Ковалев","inn":"774500527","kpp":"775500341","amount":-5200000},
-    {"date":"03.12.2024","time":"15:44","doc":"DOC-12032","type":"Поступление","category":"Операционные расходы","counterparty":"ЗАО «Радар»","inn":"774500544","kpp":"775500352","amount":4200000},
-    {"date":"04.12.2024","time":"16:51","doc":"DOC-12033","type":"Списание","category":"Подрядчики","counterparty":"АО «Сфера»","inn":"774500561","kpp":"775500363","amount":-3500000},
-    {"date":"05.12.2024","time":"09:58","doc":"DOC-12034","type":"Поступление","category":"Налоги","counterparty":"Контрагент 35","inn":"774500578","kpp":"775500374","amount":2600000},
-    {"date":"06.12.2024","time":"10:05","doc":"DOC-12035","type":"Списание","category":"Закупки","counterparty":"Контрагент 36","inn":"774500595","kpp":"775500385","amount":-1660000},
-    {"date":"07.12.2024","time":"11:12","doc":"DOC-12036","type":"Поступление","category":"Зарплата","counterparty":"Контрагент 37","inn":"774500612","kpp":"775500396","amount":980000},
-    {"date":"08.12.2024","time":"12:19","doc":"DOC-12037","type":"Списание","category":"Подрядчики","counterparty":"Контрагент 38","inn":"774500629","kpp":"775500407","amount":-1880000},
-    {"date":"09.12.2024","time":"13:26","doc":"DOC-12038","type":"Поступление","category":"Налоги","counterparty":"Контрагент 39","inn":"774500646","kpp":"775500418","amount":1750000},
-    {"date":"10.12.2024","time":"14:33","doc":"DOC-12039","type":"Списание","category":"Инвестиции","counterparty":"Контрагент 40","inn":"774500663","kpp":"775500429","amount":-740000}
+    {
+      "idx": "e00bb534c6298c05",
+      "date": "11.07.2024",
+      "cluster_id": 0,
+      "amount": "2 100 000 ₽",
+      "transaction_category": "поставка / подряд",
+      "counterparty": "ООО Астра",
+      "inn": "7701001111",
+      "risk_level": "0 / низкий",
+      "connection_basis": "не установлена: не установлена по входным данным",
+      "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+      "challenge_readiness": "низкая",
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+    },
+    {
+      "idx": "a49ccf77bced86dd",
+      "date": "02.10.2024",
+      "cluster_id": 0,
+      "amount": "-1 320 000 ₽",
+      "transaction_category": "поставка / подряд",
+      "counterparty": "ООО Подряд",
+      "inn": "7706006666",
+      "risk_level": "0 / низкий",
+      "connection_basis": "средняя: Общий телефон в контактных данных",
+      "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+      "challenge_readiness": "низкая",
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+    },
+    {
+      "idx": "7514f51a21eeeda3",
+      "date": "03.08.2024",
+      "cluster_id": 1,
+      "amount": "-4 450 000 ₽",
+      "transaction_category": "возврат займа",
+      "counterparty": "ООО Север",
+      "inn": "7702002222",
+      "risk_level": "3 / высокий",
+      "connection_basis": "сильная: Общий бенефициар и общий руководитель с должником",
+      "legal_qualification": "потенциальная проверка по ст. 61.3 127-ФЗ: предпочтительное удовлетворение",
+      "challenge_readiness": "высокая после подтверждения документов",
+      "recommendation": "Запросить документы: договор займа, график платежей, подтверждение выдачи займа, расчет задолженности. Проверить реальность обязательства, связь сторон и рыночность условий."
+    },
+    {
+      "idx": "22ca0cf9bc5d84b7",
+      "date": "17.08.2024",
+      "cluster_id": 2,
+      "amount": "-980 000 ₽",
+      "transaction_category": "аренда",
+      "counterparty": "ООО Логистик",
+      "inn": "7703003333",
+      "risk_level": "0 / низкий",
+      "connection_basis": "средняя: Общий адрес регистрации",
+      "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+      "challenge_readiness": "низкая",
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+    },
+    {
+      "idx": "e6f68f05bbbe4945",
+      "date": "07.09.2024",
+      "cluster_id": 3,
+      "amount": "-7 600 000 ₽",
+      "transaction_category": "поставка / подряд",
+      "counterparty": "ООО Вектор",
+      "inn": "7704004444",
+      "risk_level": "3 / высокий",
+      "connection_basis": "сильная: Аффилированная компания, общий учредитель",
+      "legal_qualification": "потенциальная проверка экономического смысла операции и документов основания",
+      "challenge_readiness": "высокая после подтверждения документов",
+      "recommendation": "Запросить документы: договор, счет, акт/накладная, переписка по основанию платежа. Проверить реальность обязательства, связь сторон и рыночность условий."
+    },
+    {
+      "idx": "850bab006ed16953",
+      "date": "18.09.2024",
+      "cluster_id": 4,
+      "amount": "-530 000 ₽",
+      "transaction_category": "налоги и обязательные платежи",
+      "counterparty": "ФНС",
+      "inn": "7705005555",
+      "risk_level": "0 / низкий",
+      "connection_basis": "не установлена: не установлена по входным данным",
+      "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+      "challenge_readiness": "низкая",
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+    },
+    {
+      "idx": "70bd30418843e3f9",
+      "date": "25.10.2024",
+      "cluster_id": 5,
+      "amount": "3 600 000 ₽",
+      "transaction_category": "прочая операция",
+      "counterparty": "ООО Должник",
+      "inn": "2721001111",
+      "risk_level": "0 / низкий",
+      "connection_basis": "не установлена: не установлена по входным данным",
+      "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+      "challenge_readiness": "низкая",
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+    }
   ],
   "charts": {
     "cashFlowMonthly": [
-      {"month":"Июль","incoming":12.2,"outgoing":9.1},
-      {"month":"Август","incoming":13.5,"outgoing":11.0},
-      {"month":"Сентябрь","incoming":15.6,"outgoing":12.4},
-      {"month":"Октябрь","incoming":19.2,"outgoing":22.6},
-      {"month":"Ноябрь","incoming":21.5,"outgoing":16.4}
+      {
+        "month": "2024-07",
+        "incoming": 2.1,
+        "outgoing": 0.0
+      },
+      {
+        "month": "2024-08",
+        "incoming": 0.0,
+        "outgoing": 5.43
+      },
+      {
+        "month": "2024-09",
+        "incoming": 0.0,
+        "outgoing": 8.13
+      },
+      {
+        "month": "2024-10",
+        "incoming": 3.6,
+        "outgoing": 1.32
+      }
     ],
     "expenseCategories": [
-      {"category":"Зарплатные проекты","value":6.4},
-      {"category":"Подрядчики","value":4.8},
-      {"category":"Налоги","value":3.1},
-      {"category":"Операционные расходы","value":2.6},
-      {"category":"Инвестиции","value":1.9}
+      {
+        "category": "поставка / подряд",
+        "value": 11.02
+      },
+      {
+        "category": "возврат займа",
+        "value": 4.45
+      },
+      {
+        "category": "прочая операция",
+        "value": 3.6
+      },
+      {
+        "category": "аренда",
+        "value": 0.98
+      },
+      {
+        "category": "налоги и обязательные…",
+        "value": 0.53
+      }
     ],
     "topCounterparties": [
-      {"name":"ООО «Астра»","value":8.6},
-      {"name":"ИП Ковалев","value":5.2},
-      {"name":"ЗАО «Радар»","value":4.2},
-      {"name":"АО «Сфера»","value":3.5}
+      {
+        "name": "ООО Вектор",
+        "value": 7.6
+      },
+      {
+        "name": "ООО Север",
+        "value": 4.45
+      },
+      {
+        "name": "ООО Должник",
+        "value": 3.6
+      },
+      {
+        "name": "ООО Астра",
+        "value": 2.1
+      },
+      {
+        "name": "ООО Подряд",
+        "value": 1.32
+      },
+      {
+        "name": "ООО Логистик",
+        "value": 0.98
+      }
     ],
     "riskDistribution": [
-      {"level":"Низкий","value":64},
-      {"level":"Средний","value":28},
-      {"level":"Высокий","value":8}
+      {
+        "level": "0 / низкий",
+        "value": 5
+      },
+      {
+        "level": "3 / высокий",
+        "value": 2
+      }
     ],
     "newCounterparties": [
-      {"week":"Нед 1","newPartners":4,"checkPartners":1},
-      {"week":"Нед 2","newPartners":7,"checkPartners":3},
-      {"week":"Нед 3","newPartners":6,"checkPartners":2},
-      {"week":"Нед 4","newPartners":9,"checkPartners":2},
-      {"week":"Нед 5","newPartners":11,"checkPartners":4}
+      {
+        "week": "- 1-3 года",
+        "newPartners": 4,
+        "checkPartners": 2
+      },
+      {
+        "week": "- 6-12 месяцев",
+        "newPartners": 3,
+        "checkPartners": 0
+      }
     ],
     "dailyAmountBuckets": [
-      {"bucket":"0–10K","value":1},
-      {"bucket":"10K–30K","value":8},
-      {"bucket":"30K–50K","value":5},
-      {"bucket":"50K–80K","value":8},
-      {"bucket":"80K+","value":8}
+      {
+        "bucket": "0–10K",
+        "value": 0
+      },
+      {
+        "bucket": "10–50K",
+        "value": 0
+      },
+      {
+        "bucket": "50–100K",
+        "value": 0
+      },
+      {
+        "bucket": "100–500K",
+        "value": 0
+      },
+      {
+        "bucket": "0.5–1M",
+        "value": 2
+      },
+      {
+        "bucket": "1M+",
+        "value": 5
+      }
     ],
     "dailyActivity": [
-      {"day":"Вт","incoming":6,"outgoing":2},
-      {"day":"Ср","incoming":9,"outgoing":4},
-      {"day":"Чт","incoming":12,"outgoing":7},
-      {"day":"Пт","incoming":10,"outgoing":8},
-      {"day":"Сб","incoming":14,"outgoing":11},
-      {"day":"Вс","incoming":16,"outgoing":9},
-      {"day":"Пн","incoming":13,"outgoing":6}
+      {
+        "day": "02.10",
+        "incoming": 0,
+        "outgoing": 1
+      },
+      {
+        "day": "03.08",
+        "incoming": 0,
+        "outgoing": 1
+      },
+      {
+        "day": "07.09",
+        "incoming": 0,
+        "outgoing": 1
+      },
+      {
+        "day": "11.07",
+        "incoming": 1,
+        "outgoing": 0
+      },
+      {
+        "day": "17.08",
+        "incoming": 0,
+        "outgoing": 1
+      },
+      {
+        "day": "18.09",
+        "incoming": 0,
+        "outgoing": 1
+      },
+      {
+        "day": "25.10",
+        "incoming": 1,
+        "outgoing": 0
+      }
+    ],
+    "legalQualificationDistribution": [
+      {
+        "route": "признаки оспоримости не…",
+        "value": 5
+      },
+      {
+        "route": "ст. 61.3 — предпочтител…",
+        "value": 1
+      },
+      {
+        "route": "проверка экономического…",
+        "value": 1
+      }
+    ],
+    "connectionStrengthDistribution": [
+      {
+        "strength": "не установлена",
+        "value": 3
+      },
+      {
+        "strength": "средняя",
+        "value": 2
+      },
+      {
+        "strength": "сильная",
+        "value": 2
+      }
+    ],
+    "challengeReadinessDistribution": [
+      {
+        "readiness": "низкая",
+        "value": 5
+      },
+      {
+        "readiness": "высокая после подтвер…",
+        "value": 2
+      }
     ]
   },
   "signals": [
-    {"label":"Сомнительные связи","count":4,"className":"green"},
-    {"label":"Нетипичные суммы","count":7,"className":"yellow"},
-    {"label":"Неактивные контрагенты","count":2,"className":"green"}
+    {
+      "label": "Сильная связь сторон",
+      "count": 2,
+      "className": "yellow"
+    },
+    {
+      "label": "Средняя связь сторон",
+      "count": 2,
+      "className": "yellow"
+    },
+    {
+      "label": "Маршрут 61.3",
+      "count": 1,
+      "className": "yellow"
+    },
+    {
+      "label": "Маршрут 61.2",
+      "count": 0,
+      "className": "gray"
+    },
+    {
+      "label": "Документы к запросу",
+      "count": 8,
+      "className": "yellow"
+    },
+    {
+      "label": "Готовность высокая",
+      "count": 2,
+      "className": "red"
+    },
+    {
+      "label": "Предупреждения входа",
+      "count": 0,
+      "className": "green"
+    }
   ],
   "legalReport": [
-    {"sum":"4 450 000 ₽","operations":7,"risk":"высокий","riskClass":"red","detail":"high"},
-    {"sum":"7 000 000 ₽","operations":22,"risk":"средний","riskClass":"yellow","detail":"medium"},
-    {"sum":"52 200 000 ₽","operations":122,"risk":"низкий","riskClass":"green","detail":"low"}
+    {
+      "sum": "8 530 000 ₽",
+      "operations": 5,
+      "risk": "признаки оспоримости не установлены",
+      "riskClass": "green",
+      "detail": "low"
+    },
+    {
+      "sum": "7 600 000 ₽",
+      "operations": 1,
+      "risk": "проверка экономического смысла",
+      "riskClass": "red",
+      "detail": "medium"
+    },
+    {
+      "sum": "4 450 000 ₽",
+      "operations": 1,
+      "risk": "ст. 61.3 — предпочтительное удовлетворение",
+      "riskClass": "red",
+      "detail": "route_613"
+    }
   ],
   "counterpartyRegistry": [
-    {"counterparty":"ООО «Астра»","inn":"774500510","segment":"Крупный поставщик","operations":18,"risk":"средний"},
-    {"counterparty":"ИП Ковалев","inn":"774500527","segment":"Подрядчик","operations":11,"risk":"высокий"},
-    {"counterparty":"ЗАО «Радар»","inn":"774500544","segment":"Партнер","operations":9,"risk":"низкий"},
-    {"counterparty":"АО «Сфера»","inn":"774500561","segment":"Инвестиционный контрагент","operations":6,"risk":"средний"}
+    {
+      "counterparty": "ООО Вектор",
+      "inn": "7704004444",
+      "segment": "юридическое лицо",
+      "operations": 1,
+      "risk": "3 / высокий"
+    },
+    {
+      "counterparty": "ООО Север",
+      "inn": "7702002222",
+      "segment": "юридическое лицо",
+      "operations": 1,
+      "risk": "3 / высокий"
+    },
+    {
+      "counterparty": "ООО Должник",
+      "inn": "2721001111",
+      "segment": "юридическое лицо",
+      "operations": 1,
+      "risk": "0 / низкий"
+    },
+    {
+      "counterparty": "ООО Астра",
+      "inn": "7701001111",
+      "segment": "юридическое лицо",
+      "operations": 1,
+      "risk": "0 / низкий"
+    },
+    {
+      "counterparty": "ООО Подряд",
+      "inn": "7706006666",
+      "segment": "юридическое лицо",
+      "operations": 1,
+      "risk": "0 / низкий"
+    },
+    {
+      "counterparty": "ООО Логистик",
+      "inn": "7703003333",
+      "segment": "юридическое лицо",
+      "operations": 1,
+      "risk": "0 / низкий"
+    },
+    {
+      "counterparty": "ФНС",
+      "inn": "7705005555",
+      "segment": "юридическое лицо",
+      "operations": 1,
+      "risk": "0 / низкий"
+    }
   ],
   "modal": {
-    "high": {"title":"Высокий риск","text":"Выделены операции с концентрацией сумм, нетипичной частотой и контрагентами, требующими дополнительной проверки. Блок стоит передавать юристам и службе безопасности с детализацией по операциям."},
-    "medium": {"title":"Средний риск","text":"Найдены сигналы, которые не являются достаточным основанием для жесткого вывода, но требуют уточнения документов, основания платежа и экономического смысла."},
-    "low": {"title":"Низкий риск","text":"Операции выглядят типовыми для текущего профиля. Критичных отклонений по суммам и контрагентам в демонстрационном наборе не обнаружено."}
+    "high": {
+      "title": "Высокий риск",
+      "text": "Операции требуют проверки документов основания, связи сторон, периода и экономического смысла. Сама связь не является доказательством, но влияет на приоритет проверки."
+    },
+    "medium": {
+      "title": "Средний риск",
+      "text": "Есть признаки, требующие уточнения. Отсутствие документов не повышает risk_level автоматически, но должно быть отражено в рекомендациях."
+    },
+    "low": {
+      "title": "Низкий риск",
+      "text": "По доступным данным нет достаточной совокупности признаков для повышенного риска."
+    },
+    "route_613": {
+      "title": "Маршрут 61.3",
+      "text": "Проверяется возможное предпочтительное удовлетворение требования отдельного кредитора: наличие долга, период, осведомленность, другие кредиторы, связь сторон."
+    },
+    "route_612": {
+      "title": "Маршрут 61.2",
+      "text": "Проверяется неравноценность или причинение вреда кредиторам: встречное предоставление, рыночность, экономический смысл, связь сторон."
+    }
   }
 }

@@ -8,7 +8,7 @@ from typing import Any
 
 import gradio as gr
 
-from agent_runner import run_uploaded_statement_stub
+from agent_runner import run_uploaded_statement
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
@@ -18,18 +18,19 @@ CSS = (ASSETS / "styles.css").read_text(encoding="utf-8")
 JS = (ASSETS / "dashboard.js").read_text(encoding="utf-8")
 
 DEFAULT_DATA_FILE = ASSETS / "dashboard_payload.json"
-LEGACY_DATA_FILE = ASSETS / "data.json"
-DATA_PATH = Path(os.getenv("DASHBOARD_DATA_PATH", str(DEFAULT_DATA_FILE))).expanduser()
+RUNTIME_DATA_FILE = ASSETS / "dashboard_payload_runtime.json"
+DATA_PATH = Path(os.getenv("DASHBOARD_DATA_PATH", str(RUNTIME_DATA_FILE if RUNTIME_DATA_FILE.exists() else DEFAULT_DATA_FILE))).expanduser()
 if not DATA_PATH.is_absolute():
     DATA_PATH = (ROOT / DATA_PATH).resolve()
-if not DATA_PATH.exists() and DATA_PATH == DEFAULT_DATA_FILE and LEGACY_DATA_FILE.exists():
-    DATA_PATH = LEGACY_DATA_FILE
+if not DATA_PATH.exists():
+    DATA_PATH = DEFAULT_DATA_FILE
 
 try:
     DATA = json.loads(DATA_PATH.read_text(encoding="utf-8"))
 except FileNotFoundError:
     DATA = {
-        "meta": {"appTitle": "Финансовый анализ", "appSubtitle": "банковских выписок"},
+        "meta": {"appTitle": "Финансовый анализ", "appSubtitle": "агент банкротного риска операций"},
+        "summary": {},
         "documents": [],
         "transactions": [],
         "charts": {},
@@ -55,9 +56,6 @@ def _accepts(callable_obj: Any, name: str) -> bool:
     return name in signature.parameters
 
 
-# Gradio 5: css/head должны быть в Blocks().
-# Gradio 6: css/head перенесены в launch().
-# Поэтому параметры прокидываются по фактической сигнатуре установленной версии.
 LAUNCH_ACCEPTS_CSS = _accepts(gr.Blocks.launch, "css")
 BLOCKS_KWARGS: dict[str, Any] = {
     "title": "Финансовый анализ банковских выписок",
@@ -67,31 +65,67 @@ if not LAUNCH_ACCEPTS_CSS:
     BLOCKS_KWARGS.update({"css": CSS, "head": HEAD})
 
 
+def _json_for_frontend(payload: dict[str, Any]) -> str:
+    return json.dumps(payload, ensure_ascii=False, default=str)
 
-def start_agent_analysis(uploaded_file: str | None, progress: gr.Progress = gr.Progress(track_tqdm=True)) -> tuple[str, str]:
-    """Gradio callback.
 
-    uploaded_file приходит из скрытого gr.File. Основная логика вынесена в
-    agent_runner.py, чтобы ее можно было заменить кодом из Jupyter без правки UI.
+def start_agent_analysis(
+    uploaded_file: str | None,
+    test_mode: bool,
+    progress: gr.Progress = gr.Progress(track_tqdm=True),
+) -> tuple[str, str, str]:
+    """Gradio callback: файл + режим → payload для HTML/JS dashboard.
+
+    В тестовом режиме файл необязателен: используется assets/mock_statement.xlsx.
+    В рабочем режиме файл обязателен.
     """
     if not uploaded_file:
-        return "ANALYSIS_ERROR: файл не выбран в backend bridge", ""
+        if bool(test_mode):
+            uploaded_file = str(ASSETS / "mock_statement.xlsx")
+            print("[agent] Тестовый режим запущен без пользовательского файла; используется mock_statement.xlsx", flush=True)
+        else:
+            return "ANALYSIS_ERROR: файл не выбран в backend bridge", "", ""
 
     try:
-        result = run_uploaded_statement_stub(uploaded_file, progress=progress)
-    except Exception as exc:  # Ошибку важно вернуть и в UI, и в консоль.
-        print(f"[agent] Ошибка анализа: {exc}", flush=True)
-        return f"ANALYSIS_ERROR: {type(exc).__name__}: {exc}", ""
+        result = run_uploaded_statement(uploaded_file, test_mode=bool(test_mode), progress=progress)
+    except Exception as exc:
+        print(f"[agent] Ошибка анализа: {type(exc).__name__}: {exc}", flush=True)
+        return f"ANALYSIS_ERROR: {type(exc).__name__}: {exc}", "", ""
 
-    status = f"ANALYSIS_DONE: {result['rows']} строк, {result['columns']} колонок. Файл: {result['filename']}"
-    return status, result.get("head_text", "")
+    payload = result.get("payload", {})
+    mode = result.get("mode", "unknown")
+    payload.setdefault("meta", {})["analysisCompleted"] = True
+    payload.setdefault("meta", {})["mode"] = mode
+    payload.setdefault("meta", {})["sourceFile"] = result.get("filename", "")
+    status = (
+        f"ANALYSIS_DONE: режим={mode}; "
+        f"{result['rows']} строк, {result['columns']} колонок. "
+        f"Файл: {result['filename']}"
+    )
+    preview = result.get("head_text") or result.get("analysis_head_text", "")
+    return status, preview, _json_for_frontend(payload)
+
+
+def start_agent_analysis_real(
+    uploaded_file: str | None,
+    progress: gr.Progress = gr.Progress(track_tqdm=True),
+) -> tuple[str, str, str]:
+    """Запуск реального агента: тестовый режим принудительно выключен."""
+    return start_agent_analysis(uploaded_file, False, progress)
+
+
+def start_agent_analysis_test(
+    uploaded_file: str | None,
+    progress: gr.Progress = gr.Progress(track_tqdm=True),
+) -> tuple[str, str, str]:
+    """Запуск mock-режима: агент не вызывается, файл необязателен."""
+    return start_agent_analysis(uploaded_file, True, progress)
 
 
 with gr.Blocks(**BLOCKS_KWARGS) as demo:
     gr.HTML(value=HTML, show_label=False, elem_id="finance-dashboard-html")
 
-    # Скрытый backend-bridge. Кастомная HTML-кнопка нажимает эту кнопку через JS,
-    # а gr.File хранит файл так, как ожидает Gradio/Python callback.
+    # Скрытый backend-bridge. Кастомный HTML управляет этими компонентами через JS.
     with gr.Group(elem_id="agent-backend-bridge", elem_classes=["agent-backend-bridge"]):
         agent_file = gr.File(
             label="Файл для анализа агентом",
@@ -99,16 +133,28 @@ with gr.Blocks(**BLOCKS_KWARGS) as demo:
             type="filepath",
             elem_id="agent-file-upload",
         )
-        agent_start = gr.Button("Начать анализ", elem_id="agent-start-button")
+        # Две разные backend-кнопки надежнее, чем попытка прокидывать состояние
+        # кастомного HTML-checkbox внутрь скрытого gr.Checkbox.
+        # JS нажимает одну из них в зависимости от #test-mode-checkbox.
+        agent_start_real = gr.Button("Начать реальный анализ", elem_id="agent-start-button")
+        agent_start_test = gr.Button("Начать тестовый анализ", elem_id="agent-start-test-button")
         agent_status = gr.Textbox(label="Статус агента", elem_id="agent-run-status")
-        agent_preview = gr.Textbox(label="head() таблицы", lines=8, elem_id="agent-run-preview")
+        agent_preview = gr.Textbox(label="head() результата", lines=10, elem_id="agent-run-preview")
+        agent_payload = gr.Textbox(label="dashboard_payload", lines=2, elem_id="agent-run-payload")
 
-    agent_start.click(
-        fn=start_agent_analysis,
+    agent_start_real.click(
+        fn=start_agent_analysis_real,
         inputs=[agent_file],
-        outputs=[agent_status, agent_preview],
+        outputs=[agent_status, agent_preview, agent_payload],
         show_progress="full",
-        api_name="start_analysis",
+        api_name="start_analysis_real",
+    )
+    agent_start_test.click(
+        fn=start_agent_analysis_test,
+        inputs=[agent_file],
+        outputs=[agent_status, agent_preview, agent_payload],
+        show_progress="full",
+        api_name="start_analysis_test",
     )
 
 
