@@ -9,10 +9,10 @@ from typing import Any
 import pandas as pd
 from tqdm.auto import tqdm
 
-from .config import COURT_FILING_DATE_DEFAULT, MAX_OPERATIONS_PER_LLM_BATCH
+from .config import COURT_FILING_DATE_DEFAULT, MAX_OPERATIONS_PER_LLM_BATCH, SPARK_ENRICHMENT_PATH
 from .dashboard import build_payload_from_agent_outputs
 from .fallback import deterministic_operation_analysis
-from .io import read_statement_table
+from .io import load_counterparty_enrichment, read_statement_table
 from .models import risk_db as default_risk_db
 from .output_normalizer import normalize_agent_output
 from .preprocessing import prepare_transactions
@@ -102,6 +102,7 @@ def run_agent_pipeline(
 
     path = Path(file_path)
     df: pd.DataFrame | None = None
+    enrichment_df: pd.DataFrame | None = None
     prepared: pd.DataFrame | None = None
     df_unique: pd.DataFrame | None = None
     cluster_strategy: dict[Any, dict[str, Any]] = {}
@@ -123,9 +124,19 @@ def run_agent_pipeline(
             df = read_statement_table(path)
             print(f"[agent] Прочитан файл: {path.name}; строк={len(df)}, колонок={len(df.columns)}", flush=True)
 
+            enrichment_df = load_counterparty_enrichment(SPARK_ENRICHMENT_PATH)
+            if enrichment_df.empty:
+                print("[agent] Обогащение по ИНН пропущено: SPARK_ENRICHMENT_PATH не задан или файл не найден.", flush=True)
+                reporter.note("Таблица обогащения контрагентов недоступна — анализ продолжается без неё")
+            else:
+                print(f"[agent] Обогащение контрагентов загружено: {len(enrichment_df)} строк, {len(enrichment_df.columns)} колонок", flush=True)
+                reporter.note(f"Загружена таблица обогащения контрагентов по ИНН: {len(enrichment_df)} записей")
+
         elif step == "Подготовка колонок и адаптивной LLM-выборки":
             assert df is not None
-            prepared, df_unique, cluster_strategy, diagnostics_df, warnings = prepare_transactions(df, court_filing_date=court_filing_date)
+            prepared, df_unique, cluster_strategy, diagnostics_df, warnings = prepare_transactions(
+                df, court_filing_date=court_filing_date, enrichment_df=enrichment_df
+            )
             print(f"[agent] Адаптивная выборка: {len(df_unique)} операций из {len(prepared)} в LLM ({len(cluster_strategy)} кластеров)", flush=True)
             reporter.report(f"Выборка готова: {len(df_unique)} операций из {len(prepared)} войдут в анализ ({len(cluster_strategy)} кластеров)", end_pct / 100)
 

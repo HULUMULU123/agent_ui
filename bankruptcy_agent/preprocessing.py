@@ -119,6 +119,33 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+def enrich_by_inn(df: pd.DataFrame, enrichment_df: pd.DataFrame) -> pd.DataFrame:
+    """Добавляет признаки контрагентов отдельно для дебетовой и кредитовой стороны
+    (перенесено из тетрадки, enrich_by_inn). `enrichment_df` — таблица со
+    столбцом `inn` и признаками контрагента (регистрация, статус, ОКВЭД,
+    судебные дела, налоговая задолженность и т.д.), см. SPARK_ENRICHMENT_PATH.
+
+    Если таблица обогащения пуста или не содержит `inn`, выписка возвращается
+    без изменений — анализ продолжается без обогащения, а не падает.
+    """
+    if enrichment_df is None or enrichment_df.empty or "inn" not in enrichment_df.columns:
+        return df.copy()
+
+    result = df.copy()
+    reference = enrichment_df.copy()
+    reference["inn"] = reference["inn"].astype(str).str.strip()
+
+    for side in ("debit", "credit"):
+        inn_col = f"{side}_inn"
+        if inn_col not in result.columns:
+            continue
+        result[inn_col] = result[inn_col].astype(str).str.strip()
+        prefixed = reference.add_prefix(f"{side}_")
+        result = result.merge(prefixed, on=inn_col, how="left")
+
+    return result
+
+
 def _first_existing(df: pd.DataFrame, names: list[str]) -> str | None:
     lower = {str(col).strip().lower(): col for col in df.columns}
     for name in names:
@@ -135,6 +162,7 @@ def prepare_transactions(
     *,
     court_filing_date: str = COURT_FILING_DATE_DEFAULT,
     min_abs_amount_for_llm: float = MIN_ABS_AMOUNT_FOR_LLM,
+    enrichment_df: pd.DataFrame | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[Any, dict[str, Any]], pd.DataFrame, list[str]]:
     """Подготовительный слой из тетрадки: типы, interval, idx, адаптивная LLM-выборка.
 
@@ -180,6 +208,9 @@ def prepare_transactions(
         if col not in result.columns:
             result[col] = ""
         result[col] = result[col].fillna("").astype(str)
+
+    if enrichment_df is not None and not enrichment_df.empty:
+        result = enrich_by_inn(result, enrichment_df)
 
     if "collect_all_graph_connections.description" not in result.columns:
         result["collect_all_graph_connections.description"] = ""

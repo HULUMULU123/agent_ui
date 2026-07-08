@@ -70,6 +70,13 @@ AGENT_OUTPUT_FIELDS = [
     "is_below_llm_threshold",
 ]
 
+# Путь к таблице обогащения контрагентов по ИНН (перенесено из
+# agent_v3_adaptive_clusters_1.ipynb, где она называлась spark_data/spark_inn_data.xlsx —
+# статический экспорт из DWH/Spark-джобы, а не живое подключение к Spark).
+# Если переменная не задана или файл не найден, обогащение молча пропускается —
+# так же, как в тетрадке.
+SPARK_ENRICHMENT_PATH = os.getenv("SPARK_ENRICHMENT_PATH", "")
+
 COURT_FILING_DATE_DEFAULT = os.getenv("COURT_FILING_DATE", "2025-09-11")
 MIN_ABS_AMOUNT_FOR_LLM = float(os.getenv("MIN_ABS_AMOUNT_FOR_LLM", "10000"))
 RANDOM_STATE = int(os.getenv("RANDOM_STATE", "42"))
