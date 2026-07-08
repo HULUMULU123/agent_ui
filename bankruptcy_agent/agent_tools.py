@@ -3,7 +3,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .agent_utils import content_from_message, extract_json_from_llm_response, normalize_to_list, safe_first
+from .agent_utils import content_from_message, extract_json_from_llm_response, normalize_to_list
+from .config import MAX_QUERIES_PER_TYPE
 from .models import AgentRuntime
 from .prompts import LEGAL_MODULE_SYSTEM_PROMPT
 
@@ -31,9 +32,20 @@ def get_counterparty_risk_tool(*, runtime: AgentRuntime, inn: str, court_filing_
             "limitations": ["историческая память риска недоступна"],
         }
     try:
-        risk = runtime.risk_db.get_conterparty_risk(inn=inn, court_filing_date=court_filing_date)
+        # Риск динамический: считается по всем событиям контрагента на текущую
+        # дату (recency-затухание идет от момента анализа, а не от даты дела).
+        current = runtime.risk_db.compute_current_risk(inn=inn)
         events = runtime.risk_db.get_risk_events(inn=inn, court_filing_date=court_filing_date, limit=5)
-        return {"success": True, "counterparty": inn, "historical_risk": risk, "last_5_events": events}
+        return {
+            "success": True,
+            "counterparty": inn,
+            "historical_risk": current,
+            "last_events": events,
+            "usage_note": (
+                "Использовать как дополнительный сигнал (H_COUNTERPARTY_RISK), "
+                "а не как автоматическое основание risk_level текущей операции."
+            ),
+        }
     except Exception as exc:
         return {"success": False, "counterparty": inn, "error": f"{type(exc).__name__}: {exc}"}
 
@@ -116,17 +128,24 @@ def search_practice_and_normative_tool(
 
     raw_law_queries = response_dict.get("case_law_queries", response_dict.get("case_law_practice", []))
     raw_norm_queries = response_dict.get("normative_queries", response_dict.get("normaive_queries", []))
-    law_queries = [str(x) for x in normalize_to_list(raw_law_queries) if str(x).strip()]
-    norm_queries = [str(x) for x in normalize_to_list(raw_norm_queries) if str(x).strip()]
-    law_query = safe_first(law_queries)
-    norm_query = safe_first(norm_queries)
+    law_queries = [str(x) for x in normalize_to_list(raw_law_queries) if str(x).strip()][:MAX_QUERIES_PER_TYPE]
+    norm_queries = [str(x) for x in normalize_to_list(raw_norm_queries) if str(x).strip()][:MAX_QUERIES_PER_TYPE]
 
+    # Каждый тип поиска выполняется независимо, до MAX_QUERIES_PER_TYPE запросов
+    # на тип: отсутствие/ошибка одного запроса не блокирует остальные.
     law_practice = []
+    for query in law_queries:
+        try:
+            law_practice.append(search_case_law_practice_tool(runtime=runtime, statement=query))
+        except Exception as exc:
+            law_practice.append({"success": False, "error": f"{type(exc).__name__}: {exc}"})
+
     normative_base = []
-    if law_query:
-        law_practice = search_case_law_practice_tool(runtime=runtime, statement=law_query)
-    if norm_query:
-        normative_base = search_normative_base_tool(runtime=runtime, query=norm_query)
+    for query in norm_queries:
+        try:
+            normative_base.append(search_normative_base_tool(runtime=runtime, query=query))
+        except Exception as exc:
+            normative_base.append({"success": False, "error": f"{type(exc).__name__}: {exc}"})
 
     return {
         "success": True,

@@ -2,9 +2,10 @@
   "meta": {
     "appTitle": "Финансовый анализ",
     "appSubtitle": "агент банкротного риска операций",
-    "lastUpdated": "2026-06-26T01:34:52",
+    "lastUpdated": "2026-07-08T14:54:14",
     "mode": "test_mock",
-    "sourceFile": "mock_statement.xlsx"
+    "sourceFile": "mock_statement.xlsx",
+    "exportsZipPath": "/Users/stanislav/Downloads/gradio_finance_dashboard/assets/dashboard_exports/agent_tables_mock_statement_20260708_145414.zip"
   },
   "summary": {
     "inputRows": 7,
@@ -27,6 +28,9 @@
     "strongConnections": 2,
     "documentsRequired": 8,
     "challengeReady": 2,
+    "topAmountSum": "17 750 000 ₽",
+    "needsReviewCount": 0,
+    "secondPassUpdated": 0,
     "warnings": []
   },
   "statementSummary": {
@@ -50,20 +54,21 @@
     "strongConnections": 2,
     "documentsRequired": 8,
     "challengeReady": 2,
-    "riskAmount": "12 050 000 ₽"
+    "riskAmount": "12 050 000 ₽",
+    "topAmountSum": "17 750 000 ₽"
   },
   "documents": [
     {
       "document": "mock_statement.xlsx",
       "type": "XLSX",
-      "uploaded": "26.06.2026, 01:34",
+      "uploaded": "08.07.2026, 14:54",
       "status": "проанализирован",
       "statusClass": "green"
     }
   ],
   "transactions": [
     {
-      "idx": "e00bb534c6298c05",
+      "idx": "6d660abbfe2f7dd0",
       "date": "11.07.2024",
       "cluster_id": 0,
       "amount": "2 100 000 ₽",
@@ -74,10 +79,13 @@
       "connection_basis": "не установлена: не установлена по входным данным",
       "legal_qualification": "признаков оспоримости по доступным данным не установлено",
       "challenge_readiness": "низкая",
-      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа.",
+      "analysis_source": "llm",
+      "propagation_confidence": "high",
+      "needs_review": false
     },
     {
-      "idx": "a49ccf77bced86dd",
+      "idx": "e17f845b90762cff",
       "date": "02.10.2024",
       "cluster_id": 0,
       "amount": "-1 320 000 ₽",
@@ -88,10 +96,13 @@
       "connection_basis": "средняя: Общий телефон в контактных данных",
       "legal_qualification": "признаков оспоримости по доступным данным не установлено",
       "challenge_readiness": "низкая",
-      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа.",
+      "analysis_source": "llm",
+      "propagation_confidence": "high",
+      "needs_review": false
     },
     {
-      "idx": "7514f51a21eeeda3",
+      "idx": "cf3896b2b8e659dd",
       "date": "03.08.2024",
       "cluster_id": 1,
       "amount": "-4 450 000 ₽",
@@ -102,10 +113,13 @@
       "connection_basis": "сильная: Общий бенефициар и общий руководитель с должником",
       "legal_qualification": "потенциальная проверка по ст. 61.3 127-ФЗ: предпочтительное удовлетворение",
       "challenge_readiness": "высокая после подтверждения документов",
-      "recommendation": "Запросить документы: договор займа, график платежей, подтверждение выдачи займа, расчет задолженности. Проверить реальность обязательства, связь сторон и рыночность условий."
+      "recommendation": "Запросить документы: договор займа, график платежей, подтверждение выдачи займа, расчет задолженности. Проверить реальность обязательства, связь сторон и рыночность условий.",
+      "analysis_source": "llm",
+      "propagation_confidence": "high",
+      "needs_review": false
     },
     {
-      "idx": "22ca0cf9bc5d84b7",
+      "idx": "3907cf0ca17a992b",
       "date": "17.08.2024",
       "cluster_id": 2,
       "amount": "-980 000 ₽",
@@ -116,10 +130,13 @@
       "connection_basis": "средняя: Общий адрес регистрации",
       "legal_qualification": "признаков оспоримости по доступным данным не установлено",
       "challenge_readiness": "низкая",
-      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа.",
+      "analysis_source": "llm",
+      "propagation_confidence": "high",
+      "needs_review": false
     },
     {
-      "idx": "e6f68f05bbbe4945",
+      "idx": "082604b219c6fcf4",
       "date": "07.09.2024",
       "cluster_id": 3,
       "amount": "-7 600 000 ₽",
@@ -130,10 +147,13 @@
       "connection_basis": "сильная: Аффилированная компания, общий учредитель",
       "legal_qualification": "потенциальная проверка экономического смысла операции и документов основания",
       "challenge_readiness": "высокая после подтверждения документов",
-      "recommendation": "Запросить документы: договор, счет, акт/накладная, переписка по основанию платежа. Проверить реальность обязательства, связь сторон и рыночность условий."
+      "recommendation": "Запросить документы: договор, счет, акт/накладная, переписка по основанию платежа. Проверить реальность обязательства, связь сторон и рыночность условий.",
+      "analysis_source": "llm",
+      "propagation_confidence": "high",
+      "needs_review": false
     },
     {
-      "idx": "850bab006ed16953",
+      "idx": "b2b6e79a743526ab",
       "date": "18.09.2024",
       "cluster_id": 4,
       "amount": "-530 000 ₽",
@@ -144,10 +164,13 @@
       "connection_basis": "не установлена: не установлена по входным данным",
       "legal_qualification": "признаков оспоримости по доступным данным не установлено",
       "challenge_readiness": "низкая",
-      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа.",
+      "analysis_source": "llm",
+      "propagation_confidence": "high",
+      "needs_review": false
     },
     {
-      "idx": "70bd30418843e3f9",
+      "idx": "66045c1a57ba11eb",
       "date": "25.10.2024",
       "cluster_id": 5,
       "amount": "3 600 000 ₽",
@@ -158,7 +181,10 @@
       "connection_basis": "не установлена: не установлена по входным данным",
       "legal_qualification": "признаков оспоримости по доступным данным не установлено",
       "challenge_readiness": "низкая",
-      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+      "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа.",
+      "analysis_source": "llm",
+      "propagation_confidence": "high",
+      "needs_review": false
     }
   ],
   "charts": {
@@ -354,66 +380,115 @@
         "readiness": "высокая после подтвер…",
         "value": 2
       }
+    ],
+    "analysisSourceDistribution": [
+      {
+        "source": "Прямой анализ LLM",
+        "value": 7
+      }
     ]
   },
   "signals": [
     {
       "label": "Сильная связь сторон",
       "count": 2,
-      "className": "yellow"
+      "className": "yellow",
+      "description": "Контрагент связан с должником (бенефициар, руководитель, аффилированность)."
     },
     {
       "label": "Средняя связь сторон",
       "count": 2,
-      "className": "yellow"
+      "className": "yellow",
+      "description": "Есть косвенные признаки связи (общий адрес, телефон, цепочка контрагентов)."
     },
     {
       "label": "Маршрут 61.3",
       "count": 1,
-      "className": "yellow"
+      "className": "yellow",
+      "description": "Признаки предпочтительного удовлетворения отдельного кредитора."
     },
     {
       "label": "Маршрут 61.2",
       "count": 0,
-      "className": "gray"
+      "className": "gray",
+      "description": "Признаки неравноценности встречного предоставления или вреда кредиторам."
     },
     {
       "label": "Документы к запросу",
       "count": 8,
-      "className": "yellow"
+      "className": "yellow",
+      "description": "Всего документов, которые агент рекомендует запросить по операциям."
     },
     {
       "label": "Готовность высокая",
       "count": 2,
-      "className": "red"
+      "className": "red",
+      "description": "Операции, по которым уже достаточно оснований для оспаривания."
     },
     {
       "label": "Предупреждения входа",
       "count": 0,
-      "className": "green"
+      "className": "green",
+      "description": "Проблемы качества входного файла (отсутствующие колонки и т.п.)."
     }
   ],
-  "legalReport": [
+  "connectionHighlights": [
     {
-      "sum": "8 530 000 ₽",
-      "operations": 5,
-      "risk": "признаки оспоримости не установлены",
-      "riskClass": "green",
-      "detail": "low"
+      "idx": "cf3896b2b8e659dd",
+      "counterparty": "ООО Север",
+      "inn": "7702002222",
+      "summary": "сильная: Общий бенефициар и общий руководитель с должником",
+      "strength": "сильная",
+      "risk": "3 / высокий",
+      "riskClass": "red"
     },
     {
-      "sum": "7 600 000 ₽",
-      "operations": 1,
-      "risk": "проверка экономического смысла",
-      "riskClass": "red",
-      "detail": "medium"
+      "idx": "082604b219c6fcf4",
+      "counterparty": "ООО Вектор",
+      "inn": "7704004444",
+      "summary": "сильная: Аффилированная компания, общий учредитель",
+      "strength": "сильная",
+      "risk": "3 / высокий",
+      "riskClass": "red"
     },
     {
-      "sum": "4 450 000 ₽",
-      "operations": 1,
-      "risk": "ст. 61.3 — предпочтительное удовлетворение",
-      "riskClass": "red",
-      "detail": "route_613"
+      "idx": "e17f845b90762cff",
+      "counterparty": "ООО Подряд",
+      "inn": "7706006666",
+      "summary": "средняя: Общий телефон в контактных данных",
+      "strength": "средняя",
+      "risk": "0 / низкий",
+      "riskClass": "green"
+    },
+    {
+      "idx": "3907cf0ca17a992b",
+      "counterparty": "ООО Логистик",
+      "inn": "7703003333",
+      "summary": "средняя: Общий адрес регистрации",
+      "strength": "средняя",
+      "risk": "0 / низкий",
+      "riskClass": "green"
+    }
+  ],
+  "reviewQueue": [],
+  "riskMemory": [
+    {
+      "counterparty": "ООО Вектор",
+      "inn": "7704004444",
+      "riskScore": 39.6,
+      "riskGrade": "MEDIUM",
+      "eventsCount": 1,
+      "lastEventDate": "2024-09-07",
+      "explanation": "Событий в истории: 1 (за последние 180 дней подтверждено: 1). Последняя рискованная операция: 2024-09-07 (669 дн. назад). Сильнейшие вклады: [2024-09-07, risk 3, вклад 0.40] Операция требует документальной проверки: учитываются сумма, аномальность, период, связь сторон и тип назначения платежа."
+    },
+    {
+      "counterparty": "ООО Север",
+      "inn": "7702002222",
+      "riskScore": 36.3,
+      "riskGrade": "MEDIUM",
+      "eventsCount": 1,
+      "lastEventDate": "2024-08-03",
+      "explanation": "Событий в истории: 1 (за последние 180 дней подтверждено: 1). Последняя рискованная операция: 2024-08-03 (704 дн. назад). Сильнейшие вклады: [2024-08-03, risk 3, вклад 0.36] Операция требует документальной проверки: учитываются сумма, аномальность, период, связь сторон и тип назначения платежа."
     }
   ],
   "counterpartyRegistry": [
@@ -422,51 +497,348 @@
       "inn": "7704004444",
       "segment": "юридическое лицо",
       "operations": 1,
-      "risk": "3 / высокий"
+      "risk": "3 / высокий",
+      "riskGrade": "MEDIUM"
     },
     {
       "counterparty": "ООО Север",
       "inn": "7702002222",
       "segment": "юридическое лицо",
       "operations": 1,
-      "risk": "3 / высокий"
+      "risk": "3 / высокий",
+      "riskGrade": "MEDIUM"
     },
     {
       "counterparty": "ООО Должник",
       "inn": "2721001111",
       "segment": "юридическое лицо",
       "operations": 1,
-      "risk": "0 / низкий"
+      "risk": "0 / низкий",
+      "riskGrade": "—"
     },
     {
       "counterparty": "ООО Астра",
       "inn": "7701001111",
       "segment": "юридическое лицо",
       "operations": 1,
-      "risk": "0 / низкий"
+      "risk": "0 / низкий",
+      "riskGrade": "—"
     },
     {
       "counterparty": "ООО Подряд",
       "inn": "7706006666",
       "segment": "юридическое лицо",
       "operations": 1,
-      "risk": "0 / низкий"
+      "risk": "0 / низкий",
+      "riskGrade": "—"
     },
     {
       "counterparty": "ООО Логистик",
       "inn": "7703003333",
       "segment": "юридическое лицо",
       "operations": 1,
-      "risk": "0 / низкий"
+      "risk": "0 / низкий",
+      "riskGrade": "—"
     },
     {
       "counterparty": "ФНС",
       "inn": "7705005555",
       "segment": "юридическое лицо",
       "operations": 1,
-      "risk": "0 / низкий"
+      "risk": "0 / низкий",
+      "riskGrade": "—"
     }
   ],
+  "legalConclusion": {
+    "kpis": {
+      "totalAnalyzed": 7,
+      "flaggedCount": 2,
+      "flaggedAmount": "12 050 000 ₽",
+      "needsReviewCount": 0,
+      "secondPassCount": 0
+    },
+    "normativeBase": [
+      {
+        "label": "потенциальная проверка по ст. 61.3 127-ФЗ: предпочтительное удовлетворение",
+        "count": 1
+      },
+      {
+        "label": "потенциальная проверка экономического смысла операции и документов основания",
+        "count": 1
+      }
+    ],
+    "courtPractice": [],
+    "operations": [
+      {
+        "idx": "cf3896b2b8e659dd",
+        "date": "03.08.2024",
+        "amount": "-4 450 000 ₽",
+        "counterparty": "ООО Север",
+        "inn": "7702002222",
+        "riskLevel": 3,
+        "riskLabel": "3 / высокий",
+        "riskClass": "red",
+        "transactionCategory": "возврат займа",
+        "legalQualification": "потенциальная проверка по ст. 61.3 127-ФЗ: предпочтительное удовлетворение",
+        "legalRoute": "ст. 61.3 — предпочтительное удовлетворение",
+        "decisionArgumentation": "Категория: возврат займа; сумма: -4 450 000 ₽; интервал: - 1-3 года; связь: сильная: Общий бенефициар и общий руководитель с должником; технический уровень риска: 3.",
+        "riskExplanation": "Операция требует документальной проверки: учитываются сумма, аномальность, период, связь сторон и тип назначения платежа.",
+        "overallRiskAssessment": "",
+        "connectionSummary": "сильная: Общий бенефициар и общий руководитель с должником",
+        "connectionStrength": "сильная",
+        "challengeReadiness": "высокая после подтверждения документов",
+        "legalBasis": [
+          "потенциальная проверка по ст. 61.3 127-ФЗ: предпочтительное удовлетворение"
+        ],
+        "courtBasis": [],
+        "recommendation": "Запросить документы: договор займа, график платежей, подтверждение выдачи займа, расчет задолженности. Проверить реальность обязательства, связь сторон и рыночность условий.",
+        "verificationGoal": "",
+        "riskChangeConditions": ""
+      },
+      {
+        "idx": "082604b219c6fcf4",
+        "date": "07.09.2024",
+        "amount": "-7 600 000 ₽",
+        "counterparty": "ООО Вектор",
+        "inn": "7704004444",
+        "riskLevel": 3,
+        "riskLabel": "3 / высокий",
+        "riskClass": "red",
+        "transactionCategory": "поставка / подряд",
+        "legalQualification": "потенциальная проверка экономического смысла операции и документов основания",
+        "legalRoute": "проверка экономического смысла",
+        "decisionArgumentation": "Категория: поставка / подряд; сумма: -7 600 000 ₽; интервал: - 1-3 года; связь: сильная: Аффилированная компания, общий учредитель; технический уровень риска: 3.",
+        "riskExplanation": "Операция требует документальной проверки: учитываются сумма, аномальность, период, связь сторон и тип назначения платежа.",
+        "overallRiskAssessment": "",
+        "connectionSummary": "сильная: Аффилированная компания, общий учредитель",
+        "connectionStrength": "сильная",
+        "challengeReadiness": "высокая после подтверждения документов",
+        "legalBasis": [
+          "потенциальная проверка экономического смысла операции и документов основания"
+        ],
+        "courtBasis": [],
+        "recommendation": "Запросить документы: договор, счет, акт/накладная, переписка по основанию платежа. Проверить реальность обязательства, связь сторон и рыночность условий.",
+        "verificationGoal": "",
+        "riskChangeConditions": ""
+      }
+    ],
+    "processingStats": {
+      "clustersTotal": 6,
+      "clustersCompact": 5,
+      "clustersSparse": 1,
+      "warningsCount": 0
+    }
+  },
+  "mainTables": {
+    "original": {
+      "columns": [
+        "date",
+        "amount",
+        "purpose",
+        "cluster",
+        "anomaly_score",
+        "anomaly_model_score",
+        "debit_name",
+        "debit_inn",
+        "credit_name",
+        "credit_inn",
+        "collect_all_graph_connections.description"
+      ],
+      "rows": [
+        {
+          "date": "2024-07-11",
+          "amount": "2100000",
+          "purpose": "Оплата по договору поставки №77",
+          "cluster": "0",
+          "anomaly_score": "0.22",
+          "anomaly_model_score": "0.25",
+          "debit_name": "ООО Должник",
+          "debit_inn": "2721001111",
+          "credit_name": "ООО Астра",
+          "credit_inn": "7701001111",
+          "collect_all_graph_connections.description": "Связь не выявлена"
+        },
+        {
+          "date": "2024-08-03",
+          "amount": "-4450000",
+          "purpose": "Возврат займа по договору",
+          "cluster": "1",
+          "anomaly_score": "0.91",
+          "anomaly_model_score": "0.88",
+          "debit_name": "ООО Должник",
+          "debit_inn": "2721001111",
+          "credit_name": "ООО Север",
+          "credit_inn": "7702002222",
+          "collect_all_graph_connections.description": "Общий бенефициар и общий руководитель с должником"
+        },
+        {
+          "date": "2024-08-17",
+          "amount": "-980000",
+          "purpose": "Аренда склада за август",
+          "cluster": "2",
+          "anomaly_score": "0.31",
+          "anomaly_model_score": "0.21",
+          "debit_name": "ООО Должник",
+          "debit_inn": "2721001111",
+          "credit_name": "ООО Логистик",
+          "credit_inn": "7703003333",
+          "collect_all_graph_connections.description": "Общий адрес регистрации"
+        },
+        {
+          "date": "2024-09-07",
+          "amount": "-7600000",
+          "purpose": "Перевод средств по договору уступки",
+          "cluster": "3",
+          "anomaly_score": "0.95",
+          "anomaly_model_score": "0.94",
+          "debit_name": "ООО Должник",
+          "debit_inn": "2721001111",
+          "credit_name": "ООО Вектор",
+          "credit_inn": "7704004444",
+          "collect_all_graph_connections.description": "Аффилированная компания, общий учредитель"
+        },
+        {
+          "date": "2024-09-18",
+          "amount": "-530000",
+          "purpose": "Уплата налога ФНС",
+          "cluster": "4",
+          "anomaly_score": "0.08",
+          "anomaly_model_score": "0.12",
+          "debit_name": "ООО Должник",
+          "debit_inn": "2721001111",
+          "credit_name": "ФНС",
+          "credit_inn": "7705005555",
+          "collect_all_graph_connections.description": "Связь не выявлена"
+        },
+        {
+          "date": "2024-10-02",
+          "amount": "-1320000",
+          "purpose": "Оплата по договору подряда",
+          "cluster": "0",
+          "anomaly_score": "0.48",
+          "anomaly_model_score": "0.52",
+          "debit_name": "ООО Должник",
+          "debit_inn": "2721001111",
+          "credit_name": "ООО Подряд",
+          "credit_inn": "7706006666",
+          "collect_all_graph_connections.description": "Общий телефон в контактных данных"
+        },
+        {
+          "date": "2024-10-25",
+          "amount": "3600000",
+          "purpose": "Поступление от покупателя",
+          "cluster": "5",
+          "anomaly_score": "0.4",
+          "anomaly_model_score": "0.38",
+          "debit_name": "ООО Покупатель",
+          "debit_inn": "7707007777",
+          "credit_name": "ООО Должник",
+          "credit_inn": "2721001111",
+          "collect_all_graph_connections.description": "Связь не выявлена"
+        }
+      ]
+    },
+    "finalAnalysis": {
+      "columns": [
+        "idx",
+        "date",
+        "amount",
+        "transaction_category",
+        "counterparty",
+        "risk_label",
+        "legal_qualification",
+        "analysis_source",
+        "propagation_confidence",
+        "recommendation"
+      ],
+      "rows": [
+        {
+          "idx": "6d660abbfe2f7dd0",
+          "date": "11.07.2024",
+          "amount": "2 100 000 ₽",
+          "transaction_category": "поставка / подряд",
+          "counterparty": "ООО Астра",
+          "risk_label": "0 / низкий",
+          "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+          "analysis_source": "llm",
+          "propagation_confidence": "high",
+          "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+        },
+        {
+          "idx": "e17f845b90762cff",
+          "date": "02.10.2024",
+          "amount": "-1 320 000 ₽",
+          "transaction_category": "поставка / подряд",
+          "counterparty": "ООО Подряд",
+          "risk_label": "0 / низкий",
+          "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+          "analysis_source": "llm",
+          "propagation_confidence": "high",
+          "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+        },
+        {
+          "idx": "cf3896b2b8e659dd",
+          "date": "03.08.2024",
+          "amount": "-4 450 000 ₽",
+          "transaction_category": "возврат займа",
+          "counterparty": "ООО Север",
+          "risk_label": "3 / высокий",
+          "legal_qualification": "потенциальная проверка по ст. 61.3 127-ФЗ: предпочтительное удовлетворение",
+          "analysis_source": "llm",
+          "propagation_confidence": "high",
+          "recommendation": "Запросить документы: договор займа, график платежей, подтверждение выдачи займа, расчет задолженности. Проверить реальность обязательства, связь сторон и рыночность условий."
+        },
+        {
+          "idx": "3907cf0ca17a992b",
+          "date": "17.08.2024",
+          "amount": "-980 000 ₽",
+          "transaction_category": "аренда",
+          "counterparty": "ООО Логистик",
+          "risk_label": "0 / низкий",
+          "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+          "analysis_source": "llm",
+          "propagation_confidence": "high",
+          "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+        },
+        {
+          "idx": "082604b219c6fcf4",
+          "date": "07.09.2024",
+          "amount": "-7 600 000 ₽",
+          "transaction_category": "поставка / подряд",
+          "counterparty": "ООО Вектор",
+          "risk_label": "3 / высокий",
+          "legal_qualification": "потенциальная проверка экономического смысла операции и документов основания",
+          "analysis_source": "llm",
+          "propagation_confidence": "high",
+          "recommendation": "Запросить документы: договор, счет, акт/накладная, переписка по основанию платежа. Проверить реальность обязательства, связь сторон и рыночность условий."
+        },
+        {
+          "idx": "b2b6e79a743526ab",
+          "date": "18.09.2024",
+          "amount": "-530 000 ₽",
+          "transaction_category": "налоги и обязательные платежи",
+          "counterparty": "ФНС",
+          "risk_label": "0 / низкий",
+          "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+          "analysis_source": "llm",
+          "propagation_confidence": "high",
+          "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+        },
+        {
+          "idx": "66045c1a57ba11eb",
+          "date": "25.10.2024",
+          "amount": "3 600 000 ₽",
+          "transaction_category": "прочая операция",
+          "counterparty": "ООО Должник",
+          "risk_label": "0 / низкий",
+          "legal_qualification": "признаков оспоримости по доступным данным не установлено",
+          "analysis_source": "llm",
+          "propagation_confidence": "high",
+          "recommendation": "Сохранить операцию в мониторинге; дополнительные документы запрашивать только при споре по основанию платежа."
+        }
+      ]
+    }
+  },
   "modal": {
     "high": {
       "title": "Высокий риск",

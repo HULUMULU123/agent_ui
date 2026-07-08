@@ -4,3 +4,8 @@ __pycache__
 /__pycache__
 notebooks
 /notebooks
+risk_memory.db
+assets/dashboard_payload_runtime.json
+assets/dashboard_exports/
+.claude
+/.claude

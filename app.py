@@ -3,8 +3,10 @@ from __future__ import annotations
 import inspect
 import json
 import os
+import queue
+import threading
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
 
 import gradio as gr
 
@@ -73,8 +75,16 @@ def start_agent_analysis(
     uploaded_file: str | None,
     test_mode: bool,
     progress: gr.Progress = gr.Progress(track_tqdm=True),
-) -> tuple[str, str, str]:
+) -> Iterator[tuple[str, str, str, str | None]]:
     """Gradio callback: файл + режим → payload для HTML/JS dashboard.
+
+    Генератор: агент считается в фоновом потоке, а этот генератор параллельно
+    вычитывает из очереди дружелюбные сообщения о ходе анализа и стримит их
+    в тот же статус-textbox (формат "ANALYSIS_PROGRESS:{percent}:{message}").
+    Так фронтенд получает реальный прогресс вместо статичной "заглушки на
+    90%" — прогресс-бар и лог в модалке двигаются ровно так же, как двигается
+    сам пайплайн: чтение файла -> выборка -> анализ кластеров -> распространение
+    -> второй проход -> память риска -> сборка дашборда -> экспорт.
 
     В тестовом режиме файл необязателен: используется assets/mock_statement.xlsx.
     В рабочем режиме файл обязателен.
@@ -84,14 +94,46 @@ def start_agent_analysis(
             uploaded_file = str(ASSETS / "mock_statement.xlsx")
             print("[agent] Тестовый режим запущен без пользовательского файла; используется mock_statement.xlsx", flush=True)
         else:
-            return "ANALYSIS_ERROR: файл не выбран в backend bridge", "", ""
+            yield "ANALYSIS_ERROR: файл не выбран в backend bridge", gr.skip(), gr.skip(), gr.skip()
+            return
 
-    try:
-        result = run_uploaded_statement(uploaded_file, test_mode=bool(test_mode), progress=progress)
-    except Exception as exc:
+    status_queue: queue.Queue[str | None] = queue.Queue()
+    result_holder: dict[str, Any] = {}
+
+    def on_status(message: str, percent: int) -> None:
+        status_queue.put(f"ANALYSIS_PROGRESS:{percent}:{message}")
+
+    def worker() -> None:
+        try:
+            result_holder["result"] = run_uploaded_statement(
+                uploaded_file,
+                test_mode=bool(test_mode),
+                progress=progress,
+                status_callback=on_status,
+            )
+        except Exception as exc:  # noqa: BLE001 — статус об ошибке уходит в UI, не молча теряется
+            result_holder["error"] = exc
+        finally:
+            status_queue.put(None)
+
+    worker_thread = threading.Thread(target=worker, daemon=True)
+    worker_thread.start()
+
+    while True:
+        item = status_queue.get()
+        if item is None:
+            break
+        yield item, gr.skip(), gr.skip(), gr.skip()
+
+    worker_thread.join()
+
+    if "error" in result_holder:
+        exc = result_holder["error"]
         print(f"[agent] Ошибка анализа: {type(exc).__name__}: {exc}", flush=True)
-        return f"ANALYSIS_ERROR: {type(exc).__name__}: {exc}", "", ""
+        yield f"ANALYSIS_ERROR: {type(exc).__name__}: {exc}", gr.skip(), gr.skip(), gr.skip()
+        return
 
+    result = result_holder["result"]
     payload = result.get("payload", {})
     mode = result.get("mode", "unknown")
     payload.setdefault("meta", {})["analysisCompleted"] = True
@@ -103,23 +145,24 @@ def start_agent_analysis(
         f"Файл: {result['filename']}"
     )
     preview = result.get("head_text") or result.get("analysis_head_text", "")
-    return status, preview, _json_for_frontend(payload)
+    export_zip_path = result.get("export_zip_path") or None
+    yield status, preview, _json_for_frontend(payload), export_zip_path
 
 
 def start_agent_analysis_real(
     uploaded_file: str | None,
     progress: gr.Progress = gr.Progress(track_tqdm=True),
-) -> tuple[str, str, str]:
+) -> Iterator[tuple[str, str, str, str | None]]:
     """Запуск реального агента: тестовый режим принудительно выключен."""
-    return start_agent_analysis(uploaded_file, False, progress)
+    yield from start_agent_analysis(uploaded_file, False, progress)
 
 
 def start_agent_analysis_test(
     uploaded_file: str | None,
     progress: gr.Progress = gr.Progress(track_tqdm=True),
-) -> tuple[str, str, str]:
+) -> Iterator[tuple[str, str, str, str | None]]:
     """Запуск mock-режима: агент не вызывается, файл необязателен."""
-    return start_agent_analysis(uploaded_file, True, progress)
+    yield from start_agent_analysis(uploaded_file, True, progress)
 
 
 with gr.Blocks(**BLOCKS_KWARGS) as demo:
@@ -141,18 +184,19 @@ with gr.Blocks(**BLOCKS_KWARGS) as demo:
         agent_status = gr.Textbox(label="Статус агента", elem_id="agent-run-status")
         agent_preview = gr.Textbox(label="head() результата", lines=10, elem_id="agent-run-preview")
         agent_payload = gr.Textbox(label="dashboard_payload", lines=2, elem_id="agent-run-payload")
+        agent_export_zip = gr.File(label="Архив таблиц пайплайна", elem_id="agent-export-zip")
 
     agent_start_real.click(
         fn=start_agent_analysis_real,
         inputs=[agent_file],
-        outputs=[agent_status, agent_preview, agent_payload],
+        outputs=[agent_status, agent_preview, agent_payload, agent_export_zip],
         show_progress="full",
         api_name="start_analysis_real",
     )
     agent_start_test.click(
         fn=start_agent_analysis_test,
         inputs=[agent_file],
-        outputs=[agent_status, agent_preview, agent_payload],
+        outputs=[agent_status, agent_preview, agent_payload, agent_export_zip],
         show_progress="full",
         api_name="start_analysis_test",
     )

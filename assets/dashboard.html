@@ -1,7 +1,6 @@
 <div id="finance-app" class="dashboard-app">
   <header class="topbar">
     <div class="brand">
-      <div class="brand-mark" aria-hidden="true"></div>
       <div>
         <div class="brand-title">Финансовый анализ</div>
         <div class="brand-subtitle">банковских выписок</div>
@@ -11,55 +10,22 @@
     <nav class="topnav" aria-label="Навигация">
       <button class="nav-btn active" type="button" data-page="main"><span class="nav-icon">⌂</span>Главная</button>
       <button class="nav-btn" type="button" data-page="stats"><span class="nav-icon">▥</span>Статистика</button>
-      <button class="nav-btn" type="button" data-page="history"><span class="nav-icon">◔</span>История</button>
+      <button class="nav-btn" type="button" data-page="legal"><span class="nav-icon">⚖</span>Итоговое заключение</button>
     </nav>
-
-    <div class="top-actions">
-      <div class="user-square" aria-hidden="true"></div>
-      <button class="logout-btn" type="button">Выйти</button>
-    </div>
   </header>
 
   <main class="dashboard-body">
     <section class="page active" data-view="main">
       <div class="stage-title-row">
-        <h1>Этапы анализа</h1>
-        <span>Нажмите на этап, чтобы вернуться</span>
+        <h1>Сводка последнего анализа</h1>
+        <span id="main-summary-hint">Загрузите выписку, чтобы увидеть сводку по операциям</span>
       </div>
 
-      <section class="card stages-card">
-        <button class="stage-item active" type="button" data-stage="import">
-          <span class="stage-dot">1</span>
-          <h3>Импорт выписки</h3>
-          <p>Загрузите CSV или XLS/XLSX, мы проверим корректность и подготовим структуру данных.</p>
-        </button>
-        <div class="stage-line done"></div>
-        <button class="stage-item done" type="button" data-stage="analysis">
-          <span class="stage-dot">2</span>
-          <h3>Анализ транзакций</h3>
-          <p>Нормализуем, классифицируем и строим распределение потоков денег.</p>
-        </button>
-        <div class="stage-line pending"></div>
-        <button class="stage-item current" type="button" data-stage="counterparties">
-          <span class="stage-dot">3</span>
-          <h3>Контрагенты</h3>
-          <p>Оценка рисков, выявление аномалий и рейтинги надежности партнеров.</p>
-        </button>
-        <div class="stage-line pending"></div>
-        <button class="stage-item muted" type="button" data-stage="legal">
-          <span class="stage-dot">4</span>
-          <h3>Юридический отчет</h3>
-          <p>Готовим комплаенс-резюме, подсвечиваем рисковые блоки и рекомендации.</p>
-        </button>
-      </section>
-
-      <section class="card info-card" id="stage-text-card">
-        <h2>Что делает Агент на шаге импорта</h2>
-        <ul class="bullet-list" id="stage-bullets">
-          <li>Считывает формат и выравнивает колонки выписки, чтобы не терялась структура.</li>
-          <li>Находит потенциальные ошибки в данных до запуска аналитики.</li>
-          <li>Подготавливает быстрый предпросмотр, чтобы подтвердить корректность файла.</li>
-        </ul>
+      <section class="agent-summary-grid main-summary-grid" id="main-summary-grid" hidden>
+        <div class="card agent-summary-card"><span>Операций проанализировано</span><strong id="main-kpi-total">0</strong><p id="main-kpi-clusters">Кластеров: 0</p></div>
+        <div class="card agent-summary-card"><span>Операций риска 2-3</span><strong id="main-kpi-flagged">0</strong><p id="main-kpi-flagged-amount">Сумма: 0 ₽</p></div>
+        <div class="card agent-summary-card"><span>Требует ручной проверки</span><strong id="main-kpi-review">0</strong><p class="muted-text small">Нет уверенного автоматического вывода</p></div>
+        <div class="card agent-summary-card"><span>Рекомендаций к правке</span><strong id="main-kpi-recommend">0</strong><p class="muted-text small">Операции риска 2-3 — ниже на этой странице</p></div>
       </section>
 
       <section class="card upload-card">
@@ -106,6 +72,69 @@
         </div>
       </section>
 
+      <section class="card main-table-card" id="main-original-table-card" hidden>
+        <div class="card-header-row">
+          <h2>Исходная выписка</h2>
+        </div>
+        <p class="muted-text">Первые строки файла, как он был загружен, до нормализации и работы агента. Клик по заголовку колонки сортирует таблицу.</p>
+        <div class="table-scroll dynamic-table-wrap">
+          <table id="main-original-table" class="soft-table preview-table dynamic-table">
+            <thead></thead>
+            <tbody><tr><td>Нет данных для отображения.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pager-row" id="main-original-table-pager">
+          <span id="main-original-table-page-info">0 to 0 of 0</span>
+          <button class="pager-btn" type="button" data-pager="first">|&lt;</button>
+          <button class="pager-btn" type="button" data-pager="prev">‹</button>
+          <span id="main-original-table-page-label">Page 1 of 1</span>
+          <button class="pager-btn" type="button" data-pager="next">›</button>
+          <button class="pager-btn" type="button" data-pager="last">&gt;|</button>
+        </div>
+      </section>
+
+      <section class="card main-table-card" id="main-final-table-card" hidden>
+        <div class="card-header-row">
+          <h2>Итоговая таблица агента</h2>
+          <div class="card-header-actions">
+            <button class="tiny-btn" type="button" id="open-full-table-btn">Полная таблица и фильтры →</button>
+            <button class="tiny-btn" type="button" id="download-all-zip">Скачать все таблицы (ZIP)</button>
+          </div>
+        </div>
+        <p class="muted-text">Результат агента по всей выписке: прямой анализ LLM, перенос объяснений на похожие операции и повторный анализ операций с низкой уверенностью. Клик по заголовку колонки сортирует таблицу.</p>
+        <div class="table-scroll dynamic-table-wrap">
+          <table id="main-final-table" class="soft-table preview-table dynamic-table">
+            <thead></thead>
+            <tbody><tr><td>Нет данных для отображения.</td></tr></tbody>
+          </table>
+        </div>
+        <div class="pager-row" id="main-final-table-pager">
+          <span id="main-final-table-page-info">0 to 0 of 0</span>
+          <button class="pager-btn" type="button" data-pager="first">|&lt;</button>
+          <button class="pager-btn" type="button" data-pager="prev">‹</button>
+          <span id="main-final-table-page-label">Page 1 of 1</span>
+          <button class="pager-btn" type="button" data-pager="next">›</button>
+          <button class="pager-btn" type="button" data-pager="last">&gt;|</button>
+        </div>
+      </section>
+
+      <section class="card recommendations-card" id="recommendations-card" hidden>
+        <div class="card-header-row">
+          <h2>Рекомендации по операциям риска 2-3</h2>
+          <span id="recommendations-count" class="muted-inline"></span>
+        </div>
+        <p class="muted-text">Прочитайте рекомендацию агента по каждой операции риска 2-3 и отредактируйте поле «Рекомендация» при необходимости — правка сразу попадет в таблицы и в итоговое заключение.</p>
+        <div class="recommendations-grid" id="recommendations-grid"></div>
+        <div class="pager-row" id="recommendations-pager">
+          <span id="recommendations-page-info">0 to 0 of 0</span>
+          <button class="pager-btn" type="button" data-pager="first">|&lt;</button>
+          <button class="pager-btn" type="button" data-pager="prev">‹</button>
+          <span id="recommendations-page-label">Page 1 of 1</span>
+          <button class="pager-btn" type="button" data-pager="next">›</button>
+          <button class="pager-btn" type="button" data-pager="last">&gt;|</button>
+        </div>
+      </section>
+
     </section>
 
     <section class="page" data-view="stats">
@@ -129,6 +158,16 @@
         <div class="card agent-summary-card"><span>Связи / документы</span><strong id="summary-strong-connections">0</strong><p id="summary-documents-required">Документы к запросу: 0</p></div>
       </section>
 
+      <section class="two-col-grid signals-connections-grid">
+        <div class="card signals-card">
+          <h2>Сигналы из связей и квалификации</h2>
+          <ul id="signals-list" class="info-list"></ul>
+        </div>
+        <div class="card connections-card">
+          <h2>Связи между операциями</h2>
+          <ul id="connections-list" class="info-list"></ul>
+        </div>
+      </section>
 
       <section class="card table-card">
         <div class="card-header-row">
@@ -204,9 +243,9 @@
 
       <section class="stats-card-grid">
         <div class="card metric-card">
-          <span>ТОП-4 транзакций по сумме</span>
-          <strong class="countup" data-value="18.2" data-decimals="1" data-suffix=" млн ₽">18,2 млн ₽</strong>
-          <p>Сумма операций, выбранных агентом для детальной проверки</p>
+          <span>ТОП-4 операций по сумме</span>
+          <strong id="summary-top-amount">0 ₽</strong>
+          <p>Сумма 4 крупнейших по модулю операций, которые агент отобрал для проверки</p>
         </div>
         <div class="card chart-card mini-chart-card">
           <h2>Топ контрагентов по объему</h2>
@@ -216,9 +255,9 @@
           <h2>Распределение транзакций по уровню риска</h2>
           <div class="chart-shell" data-chart="donut" data-source="riskDistribution" data-name="level" data-y="value"></div>
         </div>
-        <div class="card signals-card">
-          <h2>Сигналы из связей и квалификации</h2>
-          <div id="signals-list" class="signals-list"></div>
+        <div class="card chart-card donut-card">
+          <h2>Источник анализа операций</h2>
+          <div class="chart-shell" data-chart="donut" data-source="analysisSourceDistribution" data-name="source" data-y="value"></div>
         </div>
       </section>
 
@@ -243,11 +282,17 @@
         <div class="chart-shell" data-chart="bar" data-source="challengeReadinessDistribution" data-x="readiness" data-y="value" data-ymax="8" data-unit=""></div>
       </section>
 
+      <section class="card review-queue-card">
+        <h2>Очередь на проверку</h2>
+        <p class="muted-text">Операции, для которых не нашлось уверенного анализа (нет похожего представителя или сходство ниже порога), — остаются на ручную проверку.</p>
+        <ul id="review-queue-list" class="info-list"></ul>
+      </section>
+
       <section class="card registry-card">
         <h2>Реестры ИНН и оценка риска</h2>
         <div class="table-scroll">
           <table class="soft-table" id="registry-table">
-            <thead><tr><th>Контрагент</th><th>ИНН</th><th>Сегмент</th><th>Операций</th><th>Риск</th></tr></thead>
+            <thead><tr><th>Контрагент</th><th>ИНН</th><th>Сегмент</th><th>Операций</th><th>Риск</th><th>Память риска</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
@@ -256,59 +301,50 @@
       </div>
     </section>
 
-    <section class="page" data-view="history">
-      <section class="card stages-card history-stages">
-        <div class="stage-item done"><span class="stage-dot">1</span><h3>Импорт выписки</h3><p>Файл загружен и проверен.</p></div>
-        <div class="stage-line done"></div>
-        <div class="stage-item done"><span class="stage-dot">2</span><h3>Анализ транзакций</h3><p>Операции нормализованы.</p></div>
-        <div class="stage-line done"></div>
-        <div class="stage-item done"><span class="stage-dot">3</span><h3>Контрагенты</h3><p>Риск-профили построены.</p></div>
-        <div class="stage-line pending"></div>
-        <div class="stage-item active"><span class="stage-dot">4</span><h3>Юридический отчет</h3><p>Готовим комплаенс-резюме и рекомендации.</p></div>
+    <section class="page" data-view="legal">
+      <section class="step-indicator">Шаг 4 из 4 · Импорт → Анализ → Контрагенты → <b>Итоговое заключение</b></section>
+
+      <section class="agent-summary-grid legal-kpi-grid">
+        <div class="card agent-summary-card"><span>Всего операций проанализировано</span><strong id="legal-kpi-total">0</strong><p id="legal-kpi-clusters">Кластеров: 0</p></div>
+        <div class="card agent-summary-card"><span>Операций риска 2-3</span><strong id="legal-kpi-flagged">0</strong><p id="legal-kpi-flagged-amount">Сумма: 0 ₽</p></div>
+        <div class="card agent-summary-card"><span>На ручной проверке</span><strong id="legal-kpi-review">0</strong><p class="muted-text small">Нет уверенного автоматического вывода</p></div>
+        <div class="card agent-summary-card"><span>Повторный LLM-анализ</span><strong id="legal-kpi-second-pass">0</strong><p class="muted-text small">Операций переанализировано после первого прохода</p></div>
       </section>
 
-      <section class="card info-card">
-        <h2>Формирование юридического отчета</h2>
-        <ul class="bullet-list">
-          <li>Собираем обязательства, дедлайны и статусы документов.</li>
-          <li>Присваиваем уровень риска и подготавливаем рекомендации по действиям.</li>
-          <li>Готовим материалы для юридического отдела и службы безопасности.</li>
-        </ul>
+      <section class="two-col-grid">
+        <div class="card normative-card">
+          <h2>Нормативная база</h2>
+          <p class="muted-text small">Статьи и нормы, на которые ссылается агент по операциям риска 2-3.</p>
+          <ul id="normative-base-list" class="info-list"></ul>
+        </div>
+        <div class="card practice-card">
+          <h2>Судебная практика</h2>
+          <p class="muted-text small">Практика, использованная как методичка проверки, а не как готовое доказательство.</p>
+          <ul id="court-practice-list" class="info-list"></ul>
+        </div>
       </section>
 
       <section class="card legal-card">
         <div class="card-header-row">
-          <h2>Юридический анализ &amp; отчет</h2>
+          <h2>Заключения по операциям</h2>
           <button class="tiny-btn" type="button" id="download-legal">Скачать таблицу</button>
         </div>
-        <p class="muted-text">Автоматический комплаенс анализ выделяет обязательства и риски, готовя базу для отчета службе безопасности и юридическому департаменту.</p>
+        <p class="muted-text">Развернутый вывод по каждой операции риска 2-3: правовая квалификация, аргументация, связь сторон, готовность к оспариванию и рекомендация. Отредактированные на главной странице рекомендации отражены здесь.</p>
+        <div class="conclusion-grid" id="legal-operations-list"></div>
+      </section>
+
+      <section class="card risk-memory-card">
+        <h2>Память риска контрагентов</h2>
+        <p class="muted-text small">Историческая оценка риска (носит справочный характер, не заменяет вывод по текущей операции).</p>
         <div class="table-scroll">
-          <table class="legal-table" id="legal-table">
-            <thead><tr><th>Общая сумма</th><th>Количество операций</th><th>Риск</th><th></th></tr></thead>
+          <table class="soft-table" id="risk-memory-table">
+            <thead><tr><th>Контрагент</th><th>ИНН</th><th>Оценка</th><th>Уровень</th><th>Событий</th><th>Последнее событие</th></tr></thead>
             <tbody></tbody>
           </table>
         </div>
       </section>
-
-      <section class="card history-card">
-        <h2>История обработки</h2>
-        <div class="timeline">
-          <div><span>12.11.2024, 09:12</span><b>Загружен файл statement_november.pdf</b></div>
-          <div><span>12.11.2024, 09:14</span><b>Завершена нормализация колонок</b></div>
-          <div><span>12.11.2024, 09:22</span><b>Сформирован предварительный юридический отчет</b></div>
-        </div>
-      </section>
     </section>
   </main>
-
-  <div class="modal-overlay" id="detail-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="modal-title">
-    <div class="modal-card" role="document">
-      <button class="modal-close" type="button" id="modal-close" data-modal-close aria-label="Закрыть">×</button>
-      <h2 id="modal-title">Детализация риска</h2>
-      <p id="modal-text">Описание выбранного блока риска.</p>
-    </div>
-  </div>
-
 
   <div class="agent-loading-overlay" id="agent-loading-modal" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="agent-loading-title">
     <div class="agent-loading-card" role="document">
@@ -321,8 +357,9 @@
       <div class="agent-progress-track" aria-hidden="true"><span id="agent-progress-fill"></span></div>
       <div class="agent-loading-meta">
         <span id="agent-progress-percent">0%</span>
-        <span>tqdm / backend pipeline</span>
+        <span>Ход анализа агента</span>
       </div>
+      <ul class="agent-loading-log" id="agent-loading-log"></ul>
     </div>
   </div>
 

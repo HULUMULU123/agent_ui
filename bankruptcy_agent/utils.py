@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 import math
 import re
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 def int_safe(value: Any, default: int = 0) -> int:
     try:
@@ -99,7 +101,7 @@ def _jsonable(value: Any) -> Any:
         return {str(k): _jsonable(v) for k, v in value.items()}
     if isinstance(value, list):
         return [_jsonable(v) for v in value]
-    if isinstance(value, (pd.Timestamp, datetime)):
+    if isinstance(value, (pd.Timestamp, datetime, date)):
         return value.isoformat()
     if isinstance(value, (np.integer,)):
         return int(value)

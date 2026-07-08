@@ -11,7 +11,9 @@ from .agent_schemas import AgentClusterResult
 from .agent_tools import execute_requested_tool
 from .agent_utils import extract_json_from_llm_response, records_for_llm, to_jsonable
 from .models import AgentRuntime
+from .progress_utils import ProgressReporter, friendly_tool_message
 from .prompts import ANALYZER_SYSTEM_PROMPT, ORCHSTRATOR_SYSTEM_PROMPT
+from .utils import clean_text as clean_text_or_empty
 
 logger = logging.getLogger("bankruptcy_agent.runtime")
 
@@ -211,6 +213,7 @@ def run_cluster_agent(
     cluster_id: Any,
     cluster_df: pd.DataFrame,
     max_orchestrator_steps: int = 3,
+    reporter: ProgressReporter | None = None,
 ) -> AgentClusterResult:
     operations = records_for_llm(cluster_df)
     n_ops = len(operations)
@@ -220,6 +223,9 @@ def run_cluster_agent(
     unexecuted_requested_tools: list[dict[str, Any]] = []
 
     remaining_steps = max_orchestrator_steps
+
+    if reporter is not None:
+        reporter.note(f"Кластер {cluster_id}: просматриваю {n_ops} операций и формирую гипотезы")
 
     for _ in range(max_orchestrator_steps):
         before = remaining_steps
@@ -249,10 +255,17 @@ def run_cluster_agent(
             remaining_steps = after
             break
 
+        if reporter is not None:
+            reporter.note(f"Кластер {cluster_id}: информации недостаточно, обращаюсь к инструментам")
         for tool_req in requested_tools:
             if isinstance(tool_req, dict):
+                if reporter is not None:
+                    reporter.note(f"Кластер {cluster_id}: {friendly_tool_message(str(tool_req.get('name', '')))}")
                 tool_results.append(execute_requested_tool(runtime, tool_req))
         remaining_steps = after
+
+    if reporter is not None:
+        reporter.note(f"Кластер {cluster_id}: формирую итоговую оценку риска по операциям")
 
     analyzer_result = call_analyzer(
         runtime,
@@ -270,9 +283,17 @@ def run_cluster_agent(
         parsed_operations = [op for op in operations_list if isinstance(op, dict)]
 
     if parsed_operations:
+        # cluster_summary/overall_risk_assessment - поля уровня кластера (соседи с
+        # operations в ответе анализатора), а не отдельной операции. Проставляем их
+        # на каждую операцию, иначе они молча теряются при разборе и не доходят ни
+        # до propagation.py (где уже перечислены в PROPAGATED_ANALYSIS_FIELDS), ни до UI.
+        cluster_summary = clean_text_or_empty(analyzer_result.get("cluster_summary"))
+        overall_risk_assessment = clean_text_or_empty(analyzer_result.get("overall_risk_assessment"))
         for op in parsed_operations:
             op.setdefault("cluster_id", cluster_id)
             op.setdefault("status", "success")
+            op.setdefault("cluster_summary", cluster_summary)
+            op.setdefault("overall_risk_assessment", overall_risk_assessment)
         return {
             "cluster_id": cluster_id,
             "parsed_analysis": parsed_operations,
@@ -296,6 +317,7 @@ def run_notebook_agent(
     runtime: AgentRuntime,
     max_orchestrator_steps: int = 3,
     progress: Any | None = None,
+    reporter: ProgressReporter | None = None,
 ) -> pd.DataFrame:
     """Запускает агентный цикл из тетрадки по кластерам.
 
@@ -308,11 +330,20 @@ def run_notebook_agent(
         transactions = transactions.copy()
         transactions["cluster"] = 0
 
+    # batch_group — результат адаптивной стратегии кластеров (clustering_strategy.py):
+    # представители компактного кластера или чанк разреженного кластера. Если
+    # колонки нет (старый вызов без адаптивной стратегии), группируем по cluster.
+    group_key = "batch_group" if "batch_group" in transactions.columns else "cluster"
+
     cluster_results: list[AgentClusterResult] = []
-    groups = list(transactions.groupby("cluster", sort=False))
-    for i, (cluster_id, cluster_df) in enumerate(tqdm(groups, desc="Кластеры", unit="cluster"), start=1):
+    groups = list(transactions.groupby(group_key, sort=False))
+    total_groups = max(len(groups), 1)
+    for i, (cluster_id, cluster_df) in enumerate(tqdm(groups, desc="Батчи", unit="batch"), start=1):
+        fraction = (i - 1) / total_groups
         if progress is not None:
-            progress((i - 1) / max(len(groups), 1), desc=f"Агент анализирует кластер {cluster_id}")
+            progress(fraction, desc=f"Агент анализирует кластер {cluster_id}")
+        if reporter is not None:
+            reporter.report(f"Анализирую кластер {i} из {len(groups)} ({len(cluster_df)} операций)", fraction)
         logger.info("Обработка кластера %s: операций=%d", cluster_id, len(cluster_df))
         try:
             cluster_results.append(
@@ -321,6 +352,7 @@ def run_notebook_agent(
                     cluster_id=cluster_id,
                     cluster_df=cluster_df,
                     max_orchestrator_steps=max_orchestrator_steps,
+                    reporter=reporter,
                 )
             )
         except Exception as exc:
@@ -354,4 +386,6 @@ def run_notebook_agent(
     result_df = pd.DataFrame(flat_data)
     if progress is not None:
         progress(1.0, desc="Агентный анализ завершен")
+    if reporter is not None:
+        reporter.report(f"Кластерный анализ завершен: обработано {len(groups)} кластеров", 1.0)
     return result_df

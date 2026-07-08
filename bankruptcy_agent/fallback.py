@@ -7,6 +7,7 @@ import re
 import numpy as np
 import pandas as pd
 
+from .progress_utils import ProgressReporter
 from .utils import clean_text, format_date, format_money, short_string
 
 def legal_route(qualification: Any) -> str:
@@ -62,7 +63,7 @@ def readiness_from_risk(risk_level_value: int) -> str:
 
 
 
-def deterministic_operation_analysis(sampled_df: pd.DataFrame) -> pd.DataFrame:
+def deterministic_operation_analysis(sampled_df: pd.DataFrame, reporter: ProgressReporter | None = None) -> pd.DataFrame:
     """Детерминированный fallback в формате analyzer_result.operations.
 
     Не заменяет юридический вывод. Нужен для тестового UI и слабых устройств,
@@ -76,7 +77,12 @@ def deterministic_operation_analysis(sampled_df: pd.DataFrame) -> pd.DataFrame:
     q75 = amount_abs.quantile(0.75) if len(amount_abs) else 0
     q90 = amount_abs.quantile(0.90) if len(amount_abs) else 0
 
-    for _, tx in sampled_df.iterrows():
+    total = len(sampled_df)
+    report_every = max(1, total // 40)
+
+    for i, (_, tx) in enumerate(sampled_df.iterrows(), start=1):
+        if reporter is not None and (i == 1 or i % report_every == 0 or i == total):
+            reporter.report(f"Анализирую операцию {i} из {total}: классифицирую тип платежа и оцениваю риск", (i - 1) / total)
         purpose = str(tx.get("purpose", "")).lower()
         amount = float(tx.get("amount", 0) or 0)
         anomaly = float(tx.get("anomaly_score", 0) or 0)
@@ -118,6 +124,8 @@ def deterministic_operation_analysis(sampled_df: pd.DataFrame) -> pd.DataFrame:
             "status": "fallback_without_llm",
             "error": "",
         })
+    if reporter is not None:
+        reporter.report(f"Анализ завершен: обработано {total} операций", 1.0)
     return pd.DataFrame(rows)
 def classify_transaction_category(purpose: str, amount: float) -> str:
     p = purpose.lower()

@@ -1,17 +1,77 @@
 from __future__ import annotations
 
 import hashlib
+import re
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from .config import AGENT_SOURCE_FIELDS, COURT_FILING_DATE_DEFAULT, MIN_ABS_AMOUNT_FOR_LLM, RANDOM_STATE, SAMPLE_PER_CLUSTER
+from .clustering_strategy import apply_cluster_strategy
+from .config import COURT_FILING_DATE_DEFAULT, MIN_ABS_AMOUNT_FOR_LLM
+from .similarity import fit_similarity_space
+
+
 def make_stable_operation_id(df: pd.DataFrame) -> pd.Series:
     purpose = df.get("purpose", pd.Series([""] * len(df))).fillna("").astype(str).str.strip().str.lower()
     amount = pd.to_numeric(df.get("amount", pd.Series([0] * len(df))), errors="coerce").round(2).fillna(0).astype(str)
     date_part = pd.to_datetime(df.get("date", pd.Series([pd.NaT] * len(df))), errors="coerce").astype(str)
     raw_key = purpose + "|" + amount + "|" + date_part
+    # Порядковый номер внутри группы одинаковых ключей защищает от коллизий
+    # между полностью идентичными операциями (тот же платеж дважды в день).
+    dedup_suffix = raw_key.groupby(raw_key).cumcount().astype(str)
+    raw_key = raw_key + "|" + dedup_suffix
     return raw_key.apply(lambda x: hashlib.sha256(x.encode("utf-8")).hexdigest()[:16])
+
+
+def clean_fio(text: Any) -> str:
+    """Маскирует ФИО в тексте (перенесено из тетрадки, ячейка 07)."""
+    if pd.isna(text):
+        return ""
+    text = str(text)
+
+    surname_endings = [
+        "ов", "ев", "ин", "ын", "ский", "ая", "ой", "ий", "ич", "вич",
+        "ова", "ева", "ина", "ына", "иха", "ава", "ица", "иная",
+        "яя", "ькая", "цкая", "цкий", "ской", "цкой", "ни", "нова",
+        "ук", "чук",
+    ]
+    surname_pattern = r"\b[А-ЯЁ][а-яё]*(?:" + "|".join(surname_endings) + r")\b"
+    name_pattern = r"[А-ЯЁ][а-яё]+"
+    initial_pattern = r"[А-ЯЁ]\."
+
+    patterns = [
+        rf"{surname_pattern}\s+{name_pattern}\s+{name_pattern}",
+        rf"{surname_pattern}\s+[А-ЯЁ]\s*[А-ЯЁ]",
+        rf"{surname_pattern}\s+{initial_pattern}\s*{initial_pattern}",
+        rf"{initial_pattern}\s*{initial_pattern}\s*{surname_pattern}",
+        rf"[А-ЯЁ]\s*[А-ЯЁ]\s+{surname_pattern}",
+        rf"{surname_pattern}\s+{name_pattern}",
+        rf"{name_pattern}\s+{surname_pattern}",
+    ]
+    for pattern in patterns:
+        text = re.sub(pattern, "<ФИО>", text)
+    return text
+
+
+def anonymize_transactions(df: pd.DataFrame) -> pd.DataFrame:
+    """Обезличивает назначение платежа и ФИО сторон перед передачей в LLM."""
+    result = df.copy()
+    if "purpose" in result.columns:
+        result["purpose"] = (
+            result["purpose"]
+            .fillna("")
+            .astype(str)
+            .str.replace(r"\d{20,22}", "<Номер Счета>", regex=True)
+            .str.replace(r"\d{10,12}", "<ИНН>", regex=True)
+            .apply(clean_fio)
+        )
+    for col in ("debit_name", "credit_name"):
+        if col in result.columns:
+            result[col] = result[col].apply(clean_fio)
+    return result
+
+
 def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
     """Приводит типовые русские/английские варианты колонок к контракту агента."""
     result = df.copy()
@@ -57,6 +117,8 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
             result["amount"] = pd.Series(debit).fillna(0) - pd.Series(credit).fillna(0)
 
     return result
+
+
 def _first_existing(df: pd.DataFrame, names: list[str]) -> str | None:
     lower = {str(col).strip().lower(): col for col in df.columns}
     for name in names:
@@ -66,15 +128,22 @@ def _first_existing(df: pd.DataFrame, names: list[str]) -> str | None:
         if original is not None:
             return original
     return None
+
+
 def prepare_transactions(
     df: pd.DataFrame,
     *,
     court_filing_date: str = COURT_FILING_DATE_DEFAULT,
     min_abs_amount_for_llm: float = MIN_ABS_AMOUNT_FOR_LLM,
-    sample_per_cluster: int = SAMPLE_PER_CLUSTER,
-    random_state: int = RANDOM_STATE,
-) -> tuple[pd.DataFrame, pd.DataFrame, list[str]]:
-    """Подготовительный слой из тетрадки: типы, interval, idx, LLM-выборка."""
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[Any, dict[str, Any]], pd.DataFrame, list[str]]:
+    """Подготовительный слой из тетрадки: типы, interval, idx, адаптивная LLM-выборка.
+
+    Возвращает (prepared, df_unique, cluster_strategy, diagnostics_df, warnings).
+    `prepared` — вся выписка с техническими полями (используется для
+    распространения анализа на 100% операций). `df_unique` — представители
+    компактных кластеров + разреженные кластеры целиком (адаптивная стратегия
+    плотности, см. clustering_strategy.py), это то, что реально уходит в LLM.
+    """
     result = normalize_columns(df)
     warnings: list[str] = []
 
@@ -128,21 +197,32 @@ def prepare_transactions(
     else:
         result["idx"] = make_stable_operation_id(result)
 
-    agent_df = result[[col for col in AGENT_SOURCE_FIELDS if col in result.columns]].copy()
-    sampled = result[result["amount"].abs() >= min_abs_amount_for_llm].copy()
-    if sampled.empty:
-        sampled = result.copy()
-    sampled = diverse_cluster_sample(
-        sampled,
-        feature_cols=["anomaly_model_score", "interval_days", "anomaly_score"],
-        per_cluster=sample_per_cluster,
-        random_state=random_state,
-    )
-    sampled = sampled[sampled["cluster"] != -1].copy()
-    if sampled.empty:
-        sampled = result.copy()
+    result["is_below_llm_threshold"] = result["amount"].abs() < min_abs_amount_for_llm
 
-    return agent_df, sampled, warnings
+    # Обезличивание применяется ко всей выписке до расчета сходства и до
+    # отправки в LLM, чтобы текстовая метрика сравнивала операции в одном и
+    # том же (уже обезличенном) представлении на обеих сторонах распространения.
+    result = anonymize_transactions(result)
+
+    # Единое метрическое пространство для плотности/выбора представителей/
+    # распространения фиксируется по ВСЕЙ подготовленной выписке.
+    fit_similarity_space(result)
+
+    df_sample = result[~result["is_below_llm_threshold"]].copy().reset_index(drop=True)
+    if df_sample.empty:
+        df_sample = result.copy().reset_index(drop=True)
+
+    df_unique, cluster_strategy, diagnostics_df = apply_cluster_strategy(df_sample)
+    if df_unique.empty:
+        df_unique = df_sample.copy()
+        if "batch_group" not in df_unique.columns:
+            df_unique["batch_group"] = df_unique["cluster"].astype(str)
+        if "selection_mode" not in df_unique.columns:
+            df_unique["selection_mode"] = "full_sparse"
+
+    return result, df_unique, cluster_strategy, diagnostics_df, warnings
+
+
 def days_to_period(series: pd.Series) -> pd.Series:
     s = pd.to_numeric(series, errors="coerce")
     sign = np.where(s >= 0, "+ ", "- ")
@@ -158,11 +238,15 @@ def days_to_period(series: pd.Series) -> pd.Series:
     choices = ["<1 месяца", "1-3 месяца", "3-6 месяцев", "6-12 месяцев", "1-3 года", "более 3 лет"]
     period = np.select(conditions, choices, default="неизвестно")
     return pd.Series(np.where(s.isna(), "неизвестно", sign + period), index=series.index)
+
+
 def _amount_rank_score(amount: pd.Series) -> pd.Series:
     abs_amount = pd.to_numeric(amount, errors="coerce").abs().fillna(0)
     if abs_amount.max() <= 0:
         return pd.Series([0.0] * len(abs_amount), index=amount.index)
     return abs_amount.rank(pct=True).round(4)
+
+
 def _fallback_clusters(df: pd.DataFrame) -> pd.Series:
     purpose = df.get("purpose", pd.Series([""] * len(df))).fillna("").astype(str).str.lower()
     direction = np.where(pd.to_numeric(df.get("amount", 0), errors="coerce").fillna(0) >= 0, "in", "out")
@@ -170,47 +254,3 @@ def _fallback_clusters(df: pd.DataFrame) -> pd.Series:
     raw = pd.Series(direction, index=df.index).astype(str) + ":" + bucket.astype(str)
     codes, _ = pd.factorize(raw)
     return pd.Series(codes, index=df.index)
-def diverse_cluster_sample(
-    df: pd.DataFrame,
-    feature_cols: list[str],
-    cluster_col: str = "cluster",
-    per_cluster: int = 5,
-    total_budget: int | None = None,
-    random_state: int = 42,
-) -> pd.DataFrame:
-    if df.empty:
-        return df.copy()
-    sampled = df.copy().reset_index(drop=False).rename(columns={"index": "_orig_index"})
-    for col in feature_cols:
-        if col not in sampled.columns:
-            sampled[col] = 0.0
-        sampled[col] = pd.to_numeric(sampled[col], errors="coerce").fillna(0.0)
-    if cluster_col not in sampled.columns:
-        sampled[cluster_col] = 0
-
-    rows = []
-    for _, group in sampled.groupby(cluster_col, sort=False):
-        k = min(per_cluster, len(group))
-        rows.append(farthest_point_sampling(group, feature_cols, k))
-    sampled = pd.concat(rows, ignore_index=True) if rows else sampled
-
-    if total_budget is not None and len(sampled) > total_budget:
-        sampled = sampled.sample(total_budget, random_state=random_state)
-    sampled = sampled.sort_values([cluster_col, "_orig_index"])
-    return df.iloc[sampled["_orig_index"].astype(int).to_list()].copy()
-def farthest_point_sampling(group: pd.DataFrame, feature_cols: list[str], k: int) -> pd.DataFrame:
-    if k >= len(group):
-        return group.copy()
-    X = group[feature_cols].to_numpy(dtype=float)
-    center = X.mean(axis=0, keepdims=True)
-    first = int(np.sqrt(((X - center) ** 2).sum(axis=1)).argmax())
-    selected = [first]
-    remaining = set(range(len(group))) - {first}
-    while len(selected) < k and remaining:
-        X_sel = X[selected]
-        candidates = np.array(sorted(remaining))
-        dists = np.sqrt(((X[candidates, None, :] - X_sel[None, :, :]) ** 2).sum(axis=2))
-        pick = int(candidates[dists.min(axis=1).argmax()])
-        selected.append(pick)
-        remaining.remove(pick)
-    return group.iloc[selected].copy()

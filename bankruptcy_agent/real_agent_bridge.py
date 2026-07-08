@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import inspect
 import os
 from typing import Any
 
 import pandas as pd
 
+from .progress_utils import ProgressReporter
 
-def try_run_real_agent(sampled_df: pd.DataFrame) -> pd.DataFrame | None:
+
+def try_run_real_agent(sampled_df: pd.DataFrame, reporter: ProgressReporter | None = None) -> pd.DataFrame | None:
     """Мост к настоящему агенту.
 
     Сейчас real_agent_entrypoint.py вызывает импортируемую версию agent pipeline
@@ -19,19 +22,34 @@ def try_run_real_agent(sampled_df: pd.DataFrame) -> pd.DataFrame | None:
         from real_agent_entrypoint import run_real_agent  # type: ignore
     except Exception as exc:
         print(f"[agent] real_agent_entrypoint.py не найден или не импортируется: {exc}", flush=True)
+        if reporter is not None:
+            reporter.note("Реальный LLM-агент не настроен — использую детерминированный анализ")
         if os.getenv("STRICT_REAL_AGENT") == "1":
             raise
         return None
 
     try:
-        result = run_real_agent(sampled_df.copy())
+        if reporter is not None and _accepts_reporter(run_real_agent):
+            result = run_real_agent(sampled_df.copy(), reporter=reporter)
+        else:
+            result = run_real_agent(sampled_df.copy())
         return normalize_raw_agent_return(result)
     except Exception as exc:
         print(f"[agent] Ошибка реального агента: {type(exc).__name__}: {exc}", flush=True)
+        if reporter is not None:
+            reporter.note("Реальный агент недоступен — использую детерминированный анализ")
         if os.getenv("STRICT_REAL_AGENT") == "1":
             raise
         print("[agent] Используется fallback-анализ в том же контракте.", flush=True)
         return None
+
+
+def _accepts_reporter(callable_obj: Any) -> bool:
+    try:
+        signature = inspect.signature(callable_obj)
+    except (TypeError, ValueError):
+        return False
+    return "reporter" in signature.parameters
 
 
 def normalize_raw_agent_return(result: Any) -> pd.DataFrame | None:

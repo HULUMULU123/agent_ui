@@ -27,9 +27,12 @@ import pandas as pd
 
 from bankruptcy_agent.models import build_runtime
 from bankruptcy_agent.notebook_agent import run_notebook_agent
+from bankruptcy_agent.progress_utils import ProgressReporter
 
 
-def run_real_agent(transactions: pd.DataFrame) -> pd.DataFrame | list[dict[str, Any]] | dict[str, Any]:
+def run_real_agent(
+    transactions: pd.DataFrame, reporter: ProgressReporter | None = None
+) -> pd.DataFrame | list[dict[str, Any]] | dict[str, Any]:
     """Запуск агента из UI.
 
     `transactions` уже подготовлен слоем preprocessing.py: есть idx, cluster,
@@ -40,4 +43,4 @@ def run_real_agent(transactions: pd.DataFrame) -> pd.DataFrame | list[dict[str, 
     Дальше dashboard.py сам собирает таблицы, графики и KPI.
     """
     runtime = build_runtime()
-    return run_notebook_agent(transactions, runtime=runtime, max_orchestrator_steps=3)
+    return run_notebook_agent(transactions, runtime=runtime, max_orchestrator_steps=3, reporter=reporter)

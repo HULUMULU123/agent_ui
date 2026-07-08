@@ -66,6 +66,8 @@ def normalize_single_analysis_row(row: dict[str, Any]) -> dict[str, Any]:
     rec_summary = recommendation_summary(recommendation_obj, row, category, risk_level_value)
     docs = documents_from_output(recommendation_obj, challenge, category, risk_level_value)
     challenge.setdefault("documents_needed", docs)
+    verification_goal = clean_text(recommendation_obj.get("verification_goal")) if isinstance(recommendation_obj, dict) else ""
+    risk_change_conditions = clean_text(recommendation_obj.get("risk_change_conditions")) if isinstance(recommendation_obj, dict) else ""
 
     return {
         "cluster_id": row.get("cluster_id", row.get("cluster", "")),
@@ -90,9 +92,21 @@ def normalize_single_analysis_row(row: dict[str, Any]) -> dict[str, Any]:
         "court_basis": parse_maybe_json(row.get("court_basis", [])),
         "decision_argumentation": clean_text(row.get("decision_argumentation")),
         "risk_explanation": clean_text(row.get("risk_explanation")),
+        "overall_risk_assessment": clean_text(row.get("overall_risk_assessment")),
         "recommendation": rec_summary,
+        "recommendation_verification_goal": verification_goal,
+        "recommendation_risk_change_conditions": risk_change_conditions,
         "recommended_documents": docs,
         "used_tools": parse_maybe_json(row.get("used_tools", [])),
         "status": clean_text(row.get("status", "success")),
         "error": clean_text(row.get("error", "")),
+        # Технические поля распространения/второго прохода: безопасные
+        # дефолты для fallback-режима без propagation (все операции "llm").
+        "analysis_source": clean_text(row.get("analysis_source") or "llm"),
+        "matched_representative_idx": clean_text(row.get("matched_representative_idx") or ""),
+        "similarity_score": to_float(row.get("similarity_score"), 1.0),
+        "propagation_confidence": clean_text(row.get("propagation_confidence") or "high"),
+        "propagation_status": clean_text(row.get("propagation_status") or "analyzed_by_llm"),
+        "propagation_note": clean_text(row.get("propagation_note") or ""),
+        "needs_review": bool(row.get("needs_review", False)),
     }

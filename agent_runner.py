@@ -6,11 +6,11 @@ from typing import Any
 
 from tqdm.auto import tqdm
 
-from bankruptcy_agent import read_statement_table, run_agent_pipeline, save_payload
+from bankruptcy_agent import run_agent_pipeline, save_payload
+from bankruptcy_agent.progress_utils import StatusCallback
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
-MOCK_PAYLOAD_PATH = ASSETS / "dashboard_payload.json"
 RUNTIME_PAYLOAD_PATH = ASSETS / "dashboard_payload_runtime.json"
 
 
@@ -29,22 +29,20 @@ def dataframe_head_preview_json(df, rows: int = 5) -> str:
     return json.dumps({"columns": columns, "rows": records}, ensure_ascii=False, default=str)
 
 
-def load_mock_payload() -> dict[str, Any]:
-    """Возвращает демонстрационные данные без запуска агента."""
-    return json.loads(MOCK_PAYLOAD_PATH.read_text(encoding="utf-8"))
-
-
 def run_uploaded_statement(
     file_path: str | Path | None,
     *,
     test_mode: bool = False,
     progress: Any | None = None,
     use_real_agent: bool = True,
+    status_callback: StatusCallback | None = None,
 ) -> dict[str, Any]:
     """Единый backend-entrypoint для Gradio.
 
     test_mode=True:
-        Агент не запускается. UI получает заранее подготовленный mock payload.
+        Реальный LLM-агент не вызывается (детерминированный fallback-анализ вместо него),
+        но выписка проходит через тот же pipeline и тот же контракт payload, что и в
+        рабочем режиме — так тестовый прогон всегда отражает актуальную схему дашборда.
 
     test_mode=False:
         Файл читается, данные приводятся к контракту тетрадки агента, далее формируется
@@ -58,38 +56,35 @@ def run_uploaded_statement(
     print(f"[agent] Тестовый режим: {'включен' if test_mode else 'выключен'}", flush=True)
 
     if test_mode:
-        # В тестовом режиме реальный агент и LLM/embeddings не запускаются.
-        # Если пользовательский файл не передан, используем встроенную тестовую выписку
-        # только для формирования df.head() на главной странице.
+        # Тестовый режим не требует файла от пользователя и не вызывает реальный LLM,
+        # но использует тот же run_agent_pipeline(use_real_agent=False), что и обычный
+        # fallback-прогон — payload гарантированно соответствует текущей схеме дашборда.
         preview_path = path if path is not None else (ASSETS / "mock_statement.xlsx")
-        if progress is not None:
-            for i, step in enumerate(tqdm(["Загрузка mock payload", "Обновление UI"], desc="Тестовый режим", unit="step"), start=1):
-                progress((i - 1) / 2, desc=step)
-        payload = load_mock_payload()
-        payload.setdefault("meta", {})["mode"] = "test_mock"
-        payload.setdefault("meta", {})["sourceFile"] = preview_path.name
-        df = read_statement_table(preview_path)
-        console_head_text = df.head().to_string(index=False)
-        head_preview = dataframe_head_preview_json(df)
-        print("[agent] Тестовый режим: агент не запускался. Шапка загруженного файла:", flush=True)
+        artifacts = run_agent_pipeline(preview_path, progress=progress, use_real_agent=False, status_callback=status_callback)
+        artifacts.payload.setdefault("meta", {})["mode"] = "test_mock"
+        artifacts.payload.setdefault("meta", {})["sourceFile"] = preview_path.name
+        save_payload(artifacts.payload, RUNTIME_PAYLOAD_PATH)
+
+        console_head_text = artifacts.input_df.head().to_string(index=False)
+        head_preview = dataframe_head_preview_json(artifacts.input_df)
+        print("[agent] Тестовый режим: LLM не вызывался, использован детерминированный fallback. Шапка выписки:", flush=True)
         print(console_head_text, flush=True)
-        if progress is not None:
-            progress(1.0, desc="Mock payload готов")
         print("=" * 96 + "\n", flush=True)
         return {
             "filename": preview_path.name,
-            "rows": int(df.shape[0]),
-            "columns": int(df.shape[1]),
+            "rows": int(artifacts.input_df.shape[0]),
+            "columns": int(artifacts.input_df.shape[1]),
             "head_text": head_preview,
-            "payload": payload,
-            "payload_path": str(MOCK_PAYLOAD_PATH),
+            "payload": artifacts.payload,
+            "payload_path": str(RUNTIME_PAYLOAD_PATH),
             "mode": "test_mock",
+            "export_zip_path": artifacts.exports_zip_path or "",
         }
 
     if path is None:
         raise ValueError("В рабочем режиме нужно передать Excel/CSV-файл.")
 
-    artifacts = run_agent_pipeline(path, progress=progress, use_real_agent=use_real_agent)
+    artifacts = run_agent_pipeline(path, progress=progress, use_real_agent=use_real_agent, status_callback=status_callback)
     save_payload(artifacts.payload, RUNTIME_PAYLOAD_PATH)
 
     console_head_text = artifacts.input_df.head().to_string(index=False)
@@ -112,6 +107,7 @@ def run_uploaded_statement(
         "payload": artifacts.payload,
         "payload_path": str(RUNTIME_PAYLOAD_PATH),
         "mode": "real_agent" if use_real_agent else "fallback_agent_contract",
+        "export_zip_path": artifacts.exports_zip_path or "",
     }
 
 

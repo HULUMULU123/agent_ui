@@ -10,15 +10,14 @@
     window.financeDashboardApp = { data, rerender: () => renderAll(app, window.financeDashboardApp.data) };
 
     initNavigation(app);
-    initStages(app);
     initUploads(app, data);
     initBackendStatusMonitor(app);
     initSmartTable(app, data);
+    initMainTables(app);
     initDownloads(app, data);
-    initModal(app, data);
+    initRecommendationCards(app, data);
+    initRecommendationsPager(app);
     renderAll(app, data);
-    initCountups(app);
-    initRevealAnimations(app);
   }
 
   function normalizeData(raw) {
@@ -35,8 +34,12 @@
         transactions: [],
         charts: {},
         signals: [],
-        legalReport: [],
+        connectionHighlights: [],
+        reviewQueue: [],
+        riskMemory: [],
         counterpartyRegistry: [],
+        legalConclusion: { kpis: {}, normativeBase: [], courtPractice: [], operations: [], processingStats: {} },
+        mainTables: { original: { columns: [], rows: [] }, finalAnalysis: { columns: [], rows: [] } },
         modal: {}
       };
     }
@@ -50,8 +53,12 @@
       transactions: Array.isArray(raw.transactions) ? raw.transactions : [],
       charts,
       signals: Array.isArray(raw.signals) ? raw.signals : [],
-      legalReport: Array.isArray(raw.legalReport) ? raw.legalReport : [],
+      connectionHighlights: Array.isArray(raw.connectionHighlights) ? raw.connectionHighlights : [],
+      reviewQueue: Array.isArray(raw.reviewQueue) ? raw.reviewQueue : [],
+      riskMemory: Array.isArray(raw.riskMemory) ? raw.riskMemory : [],
       counterpartyRegistry: Array.isArray(raw.counterpartyRegistry) ? raw.counterpartyRegistry : [],
+      legalConclusion: raw.legalConclusion || { kpis: {}, normativeBase: [], courtPractice: [], operations: [], processingStats: {} },
+      mainTables: raw.mainTables || { original: { columns: [], rows: [] }, finalAnalysis: { columns: [], rows: [] } },
       modal: raw.modal || {}
     };
   }
@@ -59,10 +66,16 @@
   function renderAll(app, data) {
     applyAnalysisState(app, data);
     renderSummary(app, data.summary || {}, data.statementSummary || {}, data.outputSummary || {});
+    renderMainSummary(app, data);
     renderDocuments(app, data.documents);
     renderSignals(app, data.signals);
+    renderConnectionHighlights(app, data.connectionHighlights);
+    renderReviewQueue(app, data.reviewQueue);
     renderRegistry(app, data.counterpartyRegistry);
-    renderLegalReport(app, data.legalReport);
+    renderRiskMemory(app, data.riskMemory);
+    renderLegalConclusion(app, data.legalConclusion);
+    renderMainTables(app, data.mainTables);
+    renderRecommendationCards(app, data);
     renderCharts(app, data.charts);
   }
 
@@ -76,6 +89,12 @@
     app.classList.toggle("no-analysis", !done);
     const statsPlaceholder = app.querySelector("#stats-empty-card");
     if (statsPlaceholder instanceof HTMLElement) statsPlaceholder.hidden = done;
+    ["#main-original-table-card", "#main-final-table-card", "#recommendations-card", "#main-summary-grid"].forEach((selector) => {
+      const node = app.querySelector(selector);
+      if (node instanceof HTMLElement) node.hidden = !done;
+    });
+    const hint = app.querySelector("#main-summary-hint");
+    if (hint) hint.textContent = done ? "Данные обновляются сразу после каждого анализа" : "Загрузите выписку, чтобы увидеть сводку по операциям";
   }
 
   function initNavigation(app) {
@@ -87,99 +106,20 @@
         navButtons.forEach((b) => b.classList.toggle("active", b === btn));
         pages.forEach((page) => page.classList.toggle("active", page.dataset.view === target));
         window.scrollTo(0, 0);
-        setTimeout(() => {
-          renderCharts(app, window.financeDashboardApp?.data?.charts || {});
-          initCountups(app);
-          initRevealAnimations(app);
-        }, 30);
+        renderCharts(app, window.financeDashboardApp?.data?.charts || {});
       });
     });
   }
 
-  function initStages(app) {
-    const stageContent = {
-      import: {
-        title: "Что делает Агент на шаге импорта",
-        bullets: [
-          "Считывает формат и выравнивает колонки выписки, чтобы не терялась структура.",
-          "Находит потенциальные ошибки в данных до запуска аналитики.",
-          "Подготавливает быстрый предпросмотр, чтобы подтвердить корректность файла."
-        ]
-      },
-      analysis: {
-        title: "Что делает Агент на шаге анализа транзакций",
-        bullets: [
-          "Нормализует назначения платежей и приводит суммы к единому формату.",
-          "Классифицирует операции по типам: поступления, списания, налоги, зарплата, подрядчики.",
-          "Считает распределения, резкие отклонения и повторяющиеся денежные паттерны."
-        ]
-      },
-      counterparties: {
-        title: "Как оцениваем контрагентов",
-        bullets: [
-          "Отслеживаем динамику взаимодействий и изменения в поведении.",
-          "Считаем риск-профиль на основе открытых источников и внутренних тегов.",
-          "Выделяем сигналы и события, которые требуют внимания аналитика."
-        ]
-      },
-      legal: {
-        title: "Формирование юридического отчета",
-        bullets: [
-          "Собираем обязательства, дедлайны и статусы документов.",
-          "Присваиваем уровень риска и подготавливаем рекомендации по действиям.",
-          "Готовим материалы для юридического отдела и службы безопасности."
-        ]
-      }
-    };
-
-    function paintStageProgress(card, activeIndex) {
-      const items = Array.from(card.querySelectorAll(".stage-item"));
-      const lines = Array.from(card.querySelectorAll(".stage-line"));
-      items.forEach((item, index) => {
-        item.classList.toggle("done", index < activeIndex);
-        item.classList.toggle("active", index === activeIndex);
-        item.classList.toggle("current", index === activeIndex);
-        item.classList.toggle("muted", index > activeIndex);
-        item.setAttribute("aria-current", index === activeIndex ? "step" : "false");
-      });
-      lines.forEach((line, index) => {
-        line.classList.toggle("done", index < activeIndex);
-        line.classList.toggle("pending", index >= activeIndex);
-      });
-      card.style.setProperty("--progress", `${items.length > 1 ? (activeIndex / (items.length - 1)) * 100 : 0}%`);
-    }
-
-    app.querySelectorAll(".stages-card").forEach((card) => {
-      const items = Array.from(card.querySelectorAll(".stage-item"));
-      if (!items.length) return;
-      items.forEach((item, index) => {
-        item.dataset.stageIndex = String(index);
-        if (item.tagName !== "BUTTON") {
-          item.setAttribute("role", "button");
-          item.setAttribute("tabindex", "0");
-        }
-        const activate = () => {
-          paintStageProgress(card, index);
-          const stageKey = item.dataset.stage;
-          const stage = stageKey ? stageContent[stageKey] : null;
-          const stageTitle = app.querySelector("#stage-text-card h2");
-          const stageBullets = app.querySelector("#stage-bullets");
-          if (stage && stageTitle && stageBullets) {
-            stageTitle.textContent = stage.title;
-            stageBullets.innerHTML = stage.bullets.map((text) => `<li>${escapeHtml(text)}</li>`).join("");
-          }
-        };
-        item.addEventListener("click", activate);
-        item.addEventListener("keydown", (event) => {
-          if (event.key === "Enter" || event.key === " ") {
-            event.preventDefault();
-            activate();
-          }
-        });
-      });
-      const initialIndex = Math.max(0, items.findIndex((item) => item.classList.contains("active") || item.classList.contains("current")));
-      paintStageProgress(card, initialIndex);
-    });
+  function renderMainSummary(app, data) {
+    const conclusion = data.legalConclusion || {};
+    const kpis = conclusion.kpis || {};
+    setText(app, "#main-kpi-total", formatInteger(kpis.totalAnalyzed || 0));
+    setText(app, "#main-kpi-clusters", `Кластеров: ${formatInteger((conclusion.processingStats || {}).clustersTotal || 0)}`);
+    setText(app, "#main-kpi-flagged", formatInteger(kpis.flaggedCount || 0));
+    setText(app, "#main-kpi-flagged-amount", `Сумма: ${kpis.flaggedAmount || "0 ₽"}`);
+    setText(app, "#main-kpi-review", formatInteger(kpis.needsReviewCount || 0));
+    setText(app, "#main-kpi-recommend", formatInteger(getFlaggedOperations(data).length));
   }
 
   function initUploads(app, data) {
@@ -307,8 +247,6 @@
           renderAll(app, nextData);
           initSmartTable(app, nextData);
           initDownloads(app, nextData);
-          initCountups(app);
-          initRevealAnimations(app);
           showAnalysisPreview(app, readBridgeText("agent-run-preview"), readBridgeText("agent-run-status"));
         } catch (error) {
           console.warn("Не удалось применить dashboard_payload из backend", error);
@@ -317,6 +255,10 @@
 
       if (text && text !== lastStatus) {
         lastStatus = text;
+        const progressMatch = text.match(/ANALYSIS_PROGRESS:(\d+):(.*)$/s);
+        if (progressMatch) {
+          setAgentLoadingProgress(app, Number(progressMatch[1]), progressMatch[2].trim());
+        }
         if (text.includes("ANALYSIS_DONE")) {
           setAgentLoadingComplete(app, text.replace(/^.*ANALYSIS_DONE:/s, "Готово:"));
         }
@@ -334,9 +276,9 @@
     }, 700);
   }
 
-  let agentLoadingTimer = null;
-  let agentLoadingProgress = 0;
   let agentLoadingFinalized = false;
+  let agentLoadingLog = [];
+  const AGENT_LOADING_LOG_MAX = 6;
 
   function openAgentLoadingModal(app, message, isWarning) {
     const modal = app.querySelector("#agent-loading-modal");
@@ -346,36 +288,41 @@
     if (!modal || !text || !fill || !percent) return;
 
     agentLoadingFinalized = false;
-    agentLoadingProgress = isWarning ? 100 : 4;
+    agentLoadingLog = [];
+    renderAgentLoadingLog(app);
+    const initialPercent = isWarning ? 100 : 0;
     text.textContent = message || "Инициализируем агента.";
     modal.hidden = false;
     modal.setAttribute("aria-hidden", "false");
     modal.classList.toggle("warning", Boolean(isWarning));
-    fill.style.width = `${agentLoadingProgress}%`;
-    percent.textContent = `${Math.round(agentLoadingProgress)}%`;
+    fill.style.width = `${initialPercent}%`;
+    percent.textContent = `${initialPercent}%`;
+  }
 
-    if (agentLoadingTimer) window.clearInterval(agentLoadingTimer);
-    if (isWarning) return;
+  function setAgentLoadingProgress(app, percentValue, message) {
+    if (agentLoadingFinalized) return;
+    const modal = app.querySelector("#agent-loading-modal");
+    const text = app.querySelector("#agent-loading-text");
+    const fill = app.querySelector("#agent-progress-fill");
+    const percent = app.querySelector("#agent-progress-percent");
+    if (!modal) return;
+    const clamped = Math.max(0, Math.min(100, Number(percentValue) || 0));
+    if (fill) fill.style.width = `${clamped}%`;
+    if (percent) percent.textContent = `${Math.round(clamped)}%`;
+    if (!message) return;
+    if (text) text.textContent = message;
+    if (agentLoadingLog[0] !== message) {
+      agentLoadingLog = [message, ...agentLoadingLog].slice(0, AGENT_LOADING_LOG_MAX);
+      renderAgentLoadingLog(app);
+    }
+  }
 
-    const phrases = [
-      "Загружаем файл в runtime агента.",
-      "Читаем Excel/CSV и проверяем структуру.",
-      "Приводим данные к контракту тетрадки.",
-      "Формируем таблицы, графики и KPI.",
-      "Ожидаем завершения backend pipeline."
-    ];
-    let phraseIndex = 0;
-
-    agentLoadingTimer = window.setInterval(() => {
-      if (agentLoadingFinalized) return;
-      agentLoadingProgress = Math.min(92, agentLoadingProgress + Math.max(0.6, (92 - agentLoadingProgress) * 0.075));
-      fill.style.width = `${agentLoadingProgress}%`;
-      percent.textContent = `${Math.round(agentLoadingProgress)}%`;
-      if (Math.round(agentLoadingProgress) % 12 === 0) {
-        phraseIndex = Math.min(phrases.length - 1, phraseIndex + 1);
-        text.textContent = phrases[phraseIndex];
-      }
-    }, 260);
+  function renderAgentLoadingLog(app) {
+    const log = app.querySelector("#agent-loading-log");
+    if (!log) return;
+    log.innerHTML = agentLoadingLog
+      .map((message, index) => `<li class="${index === 0 ? "current" : ""}">${escapeHtml(message)}</li>`)
+      .join("");
   }
 
   function setAgentLoadingComplete(app, message) {
@@ -385,7 +332,6 @@
     const text = app.querySelector("#agent-loading-text");
     const fill = app.querySelector("#agent-progress-fill");
     const percent = app.querySelector("#agent-progress-percent");
-    if (agentLoadingTimer) window.clearInterval(agentLoadingTimer);
     if (text) text.textContent = message || "Анализ завершен. Шапка таблицы выведена в консоль.";
     if (fill) fill.style.width = "100%";
     if (percent) percent.textContent = "100%";
@@ -399,7 +345,6 @@
 
   function setAgentLoadingError(app, message) {
     agentLoadingFinalized = true;
-    if (agentLoadingTimer) window.clearInterval(agentLoadingTimer);
     const modal = app.querySelector("#agent-loading-modal");
     const text = app.querySelector("#agent-loading-text");
     const fill = app.querySelector("#agent-progress-fill");
@@ -413,7 +358,6 @@
 
   function closeAgentLoadingModal(app) {
     const modal = app.querySelector("#agent-loading-modal");
-    if (agentLoadingTimer) window.clearInterval(agentLoadingTimer);
     if (!modal) return;
     modal.hidden = true;
     modal.setAttribute("aria-hidden", "true");
@@ -581,67 +525,327 @@
       window.financeDashboardApp.getFilteredTransactions = getFilteredRows;
     }
 
+    window.financeDashboardApp.refreshSmartTable = render;
     render();
   }
 
   function initDownloads(app, data) {
     app.querySelector("#download-transactions")?.addEventListener("click", () => {
       const rows = window.financeDashboardApp?.getFilteredTransactions?.() || data.transactions || [];
-      downloadCsv("transactions.csv", rows, ["idx", "date", "cluster_id", "amount", "transaction_category", "counterparty", "inn", "risk_level", "connection_basis", "legal_qualification", "challenge_readiness", "recommendation"]);
+      downloadCsv("transactions.csv", rows, ["idx", "date", "cluster_id", "amount", "transaction_category", "counterparty", "inn", "risk_level", "connection_basis", "legal_qualification", "challenge_readiness", "recommendation", "analysis_source", "propagation_confidence"]);
     });
 
     app.querySelector("#download-legal")?.addEventListener("click", () => {
-      downloadCsv("legal_report.csv", data.legalReport || [], ["sum", "operations", "risk"]);
+      const currentData = window.financeDashboardApp?.data || data;
+      const ops = (currentData.legalConclusion && currentData.legalConclusion.operations) || [];
+      downloadCsv("legal_conclusion.csv", ops, ["idx", "date", "amount", "counterparty", "inn", "riskLabel", "legalQualification", "legalRoute", "decisionArgumentation", "riskExplanation", "recommendation"]);
+    });
+
+    app.querySelector("#download-all-zip")?.addEventListener("click", () => {
+      const zipContainer = document.getElementById("agent-export-zip");
+      const zipLink = zipContainer?.querySelector('a[href]') || zipContainer?.querySelector("a[download]");
+      if (zipLink instanceof HTMLAnchorElement) {
+        zipLink.click();
+      } else {
+        window.alert("Архив таблиц еще не готов. Запустите анализ в рабочем режиме (не тестовом) и дождитесь завершения.");
+      }
+    });
+
+    app.querySelector("#open-full-table-btn")?.addEventListener("click", () => {
+      const statsNavBtn = app.querySelector('.nav-btn[data-page="stats"]');
+      if (statsNavBtn instanceof HTMLElement) statsNavBtn.click();
     });
   }
 
-  function initModal(app, data) {
-    const modal = app.querySelector("#detail-modal");
-    const modalTitle = app.querySelector("#modal-title");
-    const modalText = app.querySelector("#modal-text");
-    if (!modal || !modalTitle || !modalText) return;
+  let mainOriginalTableController = null;
+  let mainFinalTableController = null;
 
-    function closeModal() {
-      modal.hidden = true;
-      modal.setAttribute("aria-hidden", "true");
-      document.body.style.overflow = "";
+  function initMainTables(app) {
+    const originalTable = app.querySelector("#main-original-table");
+    if (originalTable instanceof HTMLTableElement) {
+      mainOriginalTableController = createDynamicTable(app, originalTable, "main-original-table");
+    }
+    const finalTable = app.querySelector("#main-final-table");
+    if (finalTable instanceof HTMLTableElement) {
+      mainFinalTableController = createDynamicTable(app, finalTable, "main-final-table");
+    }
+  }
+
+  function renderMainTables(app, mainTables) {
+    mainTables = mainTables || {};
+    mainOriginalTableController?.setData(mainTables.original || { columns: [], rows: [] });
+    mainFinalTableController?.setData(mainTables.finalAnalysis || { columns: [], rows: [] });
+  }
+
+  // Динамическая таблица-превью: сортировка по клику на заголовок, фильтр по
+  // каждой колонке, постраничный вывод — тот же уровень интерактивности, что и
+  // у таблицы транзакций на странице «Статистика», но с колонками, которые
+  // определяются на лету (структура исходного файла заранее не известна).
+  function createDynamicTable(app, table, idPrefix) {
+    const tbody = table.querySelector("tbody");
+    const thead = table.querySelector("thead");
+    const pageInfo = app.querySelector(`#${idPrefix}-page-info`);
+    const pageLabel = app.querySelector(`#${idPrefix}-page-label`);
+    const pagerRow = app.querySelector(`#${idPrefix}-pager`);
+    const pageSize = 10;
+
+    let columns = [];
+    let rows = [];
+    let sortKey = null;
+    let sortDir = 1;
+    let page = 1;
+    const filters = {};
+
+    function renderHeader() {
+      if (!thead) return;
+      if (!columns.length) {
+        thead.innerHTML = "";
+        return;
+      }
+      thead.innerHTML = `
+        <tr>${columns.map((col) => `<th data-key="${escapeAttr(col)}" title="${escapeAttr(col)}">${escapeHtml(col)} <span class="sort-mark">↕</span></th>`).join("")}</tr>
+        <tr class="filter-row">${columns.map((col) => `<td><input data-filter="${escapeAttr(col)}" aria-label="Фильтр ${escapeAttr(col)}"></td>`).join("")}</tr>`;
+      thead.querySelectorAll("th[data-key]").forEach((th) => {
+        th.addEventListener("click", () => {
+          const key = th.dataset.key;
+          if (sortKey === key) sortDir *= -1;
+          else { sortKey = key; sortDir = 1; }
+          page = 1;
+          render();
+        });
+      });
+      thead.querySelectorAll("input[data-filter]").forEach((input) => {
+        input.addEventListener("input", () => {
+          filters[input.dataset.filter] = input.value.trim().toLowerCase();
+          page = 1;
+          render();
+        });
+      });
     }
 
-    function openModal(detailKey) {
-      const fallback = data.modal.low || { title: "Детализация риска", text: "Нет данных для выбранного блока." };
-      const item = data.modal[detailKey] || fallback;
-      modalTitle.textContent = item.title || fallback.title;
-      modalText.textContent = item.text || fallback.text;
-      modal.hidden = false;
-      modal.setAttribute("aria-hidden", "false");
-      document.body.style.overflow = "hidden";
-      app.querySelector("#modal-close")?.focus();
+    function getFilteredRows() {
+      let out = rows.filter((row) => Object.entries(filters).every(([key, value]) => !value || String(row[key] ?? "").toLowerCase().includes(value)));
+      if (sortKey) {
+        out = out.slice().sort((a, b) => {
+          const av = smartCellValue(a[sortKey]);
+          const bv = smartCellValue(b[sortKey]);
+          if (av < bv) return -1 * sortDir;
+          if (av > bv) return 1 * sortDir;
+          return 0;
+        });
+      }
+      return out;
     }
+
+    function render() {
+      if (!tbody) return;
+      if (!columns.length) {
+        tbody.innerHTML = `<tr><td>Нет данных для отображения.</td></tr>`;
+        if (pageInfo) pageInfo.textContent = "0 to 0 of 0";
+        if (pageLabel) pageLabel.textContent = "Page 1 of 1";
+        return;
+      }
+      const filtered = getFilteredRows();
+      const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+      if (page > totalPages) page = totalPages;
+      const start = (page - 1) * pageSize;
+      const visible = filtered.slice(start, start + pageSize);
+      tbody.innerHTML = visible.length
+        ? visible.map((row) => `<tr>${columns.map((col) => {
+            const value = row && Object.prototype.hasOwnProperty.call(row, col) ? row[col] : "";
+            return `<td title="${escapeAttr(value)}">${escapeHtml(value)}</td>`;
+          }).join("")}</tr>`).join("")
+        : `<tr><td>${filtered.length === 0 && rows.length > 0 ? "Нет строк, соответствующих фильтру." : "Нет строк для предпросмотра"}</td></tr>`;
+      const from = filtered.length ? start + 1 : 0;
+      const to = Math.min(start + pageSize, filtered.length);
+      if (pageInfo) pageInfo.textContent = `${from} to ${to} of ${filtered.length}`;
+      if (pageLabel) pageLabel.textContent = `Page ${page} of ${totalPages}`;
+    }
+
+    if (pagerRow) {
+      pagerRow.querySelectorAll(".pager-btn[data-pager]").forEach((btn) => {
+        btn.addEventListener("click", () => {
+          const filtered = getFilteredRows();
+          const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+          if (btn.dataset.pager === "first") page = 1;
+          if (btn.dataset.pager === "prev") page = Math.max(1, page - 1);
+          if (btn.dataset.pager === "next") page = Math.min(totalPages, page + 1);
+          if (btn.dataset.pager === "last") page = totalPages;
+          render();
+        });
+      });
+    }
+
+    function setData(preview) {
+      columns = Array.isArray(preview?.columns) ? preview.columns : [];
+      rows = Array.isArray(preview?.rows) ? preview.rows : [];
+      sortKey = null;
+      sortDir = 1;
+      page = 1;
+      Object.keys(filters).forEach((key) => delete filters[key]);
+      renderHeader();
+      render();
+    }
+
+    function patchRow(matchKey, matchValue, patch) {
+      const row = rows.find((r) => String(r?.[matchKey]) === String(matchValue));
+      if (!row) return;
+      Object.assign(row, patch);
+      render();
+    }
+
+    return { setData, patchRow };
+  }
+
+  function smartCellValue(value) {
+    const text = String(value ?? "").trim();
+    if (!text) return "";
+    const numeric = Number(text.replace(/[\s ]/g, "").replace(",", "."));
+    if (Number.isFinite(numeric) && /^[-+]?[\d\s ]*[.,]?\d*\s*(₽|%)?$/.test(text)) return numeric;
+    const asDate = text.match(/^(\d{2})\.(\d{2})\.(\d{4})/);
+    if (asDate) return `${asDate[3]}-${asDate[2]}-${asDate[1]}`;
+    return text.toLowerCase();
+  }
+
+  function getFlaggedOperations(data) {
+    const ops = (data && data.legalConclusion && data.legalConclusion.operations) || [];
+    return ops.filter((op) => Number(op.riskLevel) >= 2);
+  }
+
+  const RECOMMENDATIONS_PAGE_SIZE = 4;
+  let recommendationsPage = 1;
+
+  function renderRecommendationCards(app, data) {
+    const grid = app.querySelector("#recommendations-grid");
+    if (!grid) return;
+    const ops = getFlaggedOperations(data);
+    const pagerRow = app.querySelector("#recommendations-pager");
+    if (!ops.length) {
+      grid.innerHTML = `<div class="muted-text">Операций высокого риска не найдено — редактировать пока нечего.</div>`;
+      if (pagerRow) pagerRow.hidden = true;
+      setText(app, "#recommendations-count", "");
+      return;
+    }
+    if (pagerRow) pagerRow.hidden = false;
+    recommendationsPage = 1;
+    renderRecommendationsPage(app, ops);
+  }
+
+  function renderRecommendationsPage(app, ops) {
+    const grid = app.querySelector("#recommendations-grid");
+    if (!grid) return;
+    const totalPages = Math.max(1, Math.ceil(ops.length / RECOMMENDATIONS_PAGE_SIZE));
+    if (recommendationsPage > totalPages) recommendationsPage = totalPages;
+    const start = (recommendationsPage - 1) * RECOMMENDATIONS_PAGE_SIZE;
+    const visible = ops.slice(start, start + RECOMMENDATIONS_PAGE_SIZE);
+    grid.innerHTML = visible.map(renderRecommendationCard).join("");
+    const from = ops.length ? start + 1 : 0;
+    const to = Math.min(start + RECOMMENDATIONS_PAGE_SIZE, ops.length);
+    setText(app, "#recommendations-page-info", `${from} to ${to} of ${ops.length}`);
+    setText(app, "#recommendations-page-label", `Page ${recommendationsPage} of ${totalPages}`);
+    setText(app, "#recommendations-count", `Всего операций высокого риска: ${ops.length}`);
+  }
+
+  function initRecommendationsPager(app) {
+    const pagerRow = app.querySelector("#recommendations-pager");
+    if (!pagerRow) return;
+    pagerRow.querySelectorAll(".pager-btn[data-pager]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const ops = getFlaggedOperations(window.financeDashboardApp?.data);
+        if (!ops.length) return;
+        const totalPages = Math.max(1, Math.ceil(ops.length / RECOMMENDATIONS_PAGE_SIZE));
+        if (btn.dataset.pager === "first") recommendationsPage = 1;
+        if (btn.dataset.pager === "prev") recommendationsPage = Math.max(1, recommendationsPage - 1);
+        if (btn.dataset.pager === "next") recommendationsPage = Math.min(totalPages, recommendationsPage + 1);
+        if (btn.dataset.pager === "last") recommendationsPage = totalPages;
+        renderRecommendationsPage(app, ops);
+      });
+    });
+  }
+
+  function renderRecommendationCard(op) {
+    return `
+      <article class="recommendation-card" data-rec-idx="${escapeAttr(op.idx)}">
+        <div class="conclusion-card-head">
+          <div>
+            <b>${escapeHtml(op.amount)}</b>
+            <span class="muted-inline">${escapeHtml(op.date)} · ${escapeHtml(op.counterparty)} (ИНН ${escapeHtml(op.inn || "не определен")})</span>
+          </div>
+          <span class="badge ${escapeClass(op.riskClass)}">${escapeHtml(op.riskLabel)}</span>
+        </div>
+        <div class="conclusion-card-tags">
+          <span class="tag">${escapeHtml(op.transactionCategory)}</span>
+          <span class="tag">${escapeHtml(op.legalRoute)}</span>
+          <span class="tag">${escapeHtml(op.connectionStrength)}</span>
+        </div>
+        <p class="conclusion-field">${escapeHtml(op.riskExplanation)}</p>
+        <div class="recommendation-edit-block">
+          <label class="recommendation-label" for="rec-input-${escapeAttr(op.idx)}">✎ Рекомендация — поле для правки сотрудником</label>
+          <textarea class="recommendation-input" id="rec-input-${escapeAttr(op.idx)}" data-original="${escapeAttr(op.recommendation)}" rows="3">${escapeHtml(op.recommendation)}</textarea>
+          <div class="recommendation-card-actions">
+            <span class="recommendation-status" data-rec-status="${escapeAttr(op.idx)}"></span>
+            <button class="tiny-btn" type="button" data-reset-rec="${escapeAttr(op.idx)}">Сбросить к варианту агента</button>
+          </div>
+        </div>
+      </article>`;
+  }
+
+  function initRecommendationCards(app) {
+    app.addEventListener("input", (event) => {
+      const target = getElementTarget(event);
+      if (!(target instanceof HTMLTextAreaElement) || !target.classList.contains("recommendation-input")) return;
+      const card = target.closest("[data-rec-idx]");
+      const idx = card?.dataset.recIdx;
+      if (!idx) return;
+      patchRecommendation(app, window.financeDashboardApp.data, idx, target.value);
+      const status = app.querySelector(`[data-rec-status="${cssEscape(idx)}"]`);
+      if (status) status.textContent = "Изменено вручную";
+    });
 
     app.addEventListener("click", (event) => {
       const target = getElementTarget(event);
-      const detailBtn = target?.closest(".details-btn[data-detail]");
-      if (!detailBtn || !app.contains(detailBtn)) return;
-      event.preventDefault();
-      openModal(detailBtn.dataset.detail);
-    });
-
-    app.querySelectorAll("[data-modal-close]").forEach((button) => {
-      button.addEventListener("click", (event) => {
-        event.preventDefault();
-        closeModal();
-      });
-    });
-
-    modal.addEventListener("click", (event) => {
-      if (getElementTarget(event) === modal) closeModal();
-    });
-
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !modal.hidden) closeModal();
+      const resetBtn = target?.closest("[data-reset-rec]");
+      if (!resetBtn) return;
+      const idx = resetBtn.dataset.resetRec;
+      const textarea = app.querySelector(`#rec-input-${cssEscape(idx)}`);
+      if (textarea instanceof HTMLTextAreaElement) {
+        const original = textarea.dataset.original || "";
+        textarea.value = original;
+        patchRecommendation(app, window.financeDashboardApp.data, idx, original);
+        const status = app.querySelector(`[data-rec-status="${cssEscape(idx)}"]`);
+        if (status) status.textContent = "";
+      }
     });
   }
 
+  function patchRecommendation(app, data, idx, text) {
+    if (!data) return;
+    let changed = false;
+    (data.transactions || []).forEach((row) => {
+      if (String(row.idx) === String(idx)) {
+        row.recommendation = text;
+        changed = true;
+      }
+    });
+    ((data.legalConclusion && data.legalConclusion.operations) || []).forEach((op) => {
+      if (String(op.idx) === String(idx)) {
+        op.recommendation = text;
+        changed = true;
+      }
+    });
+    if (!changed) return;
+
+    const viewEl = app.querySelector(`[data-recommendation-view="${cssEscape(idx)}"]`);
+    if (viewEl) viewEl.innerHTML = `<b>Рекомендация:</b> ${escapeHtml(text)}`;
+
+    mainFinalTableController?.patchRow?.("idx", idx, { recommendation: text });
+    window.financeDashboardApp?.refreshSmartTable?.();
+  }
+
+  function cssEscape(value) {
+    if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(value));
+    return String(value).replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+  }
 
   function renderSummary(app, summary, statementSummary, outputSummary) {
     const stmt = statementSummary || {};
@@ -668,13 +872,7 @@
     setText(app, "#summary-legal-routes", `Правовые маршруты: ${formatInteger(summary.legalRoutes ?? out.legalRoutes ?? 0)}`);
     setText(app, "#summary-strong-connections", formatInteger(summary.strongConnections ?? out.strongConnections ?? 0));
     setText(app, "#summary-documents-required", `Документы к запросу: ${formatInteger(summary.documentsRequired ?? out.documentsRequired ?? 0)}`);
-
-    const metric = app.querySelector(".metric-card strong");
-    if (metric) {
-      metric.textContent = summary.riskAmount || out.riskAmount || metric.textContent || "0 ₽";
-      metric.dataset.finalText = metric.textContent;
-      metric.dataset.countupLocked = "1";
-    }
+    setText(app, "#summary-top-amount", summary.topAmountSum || out.topAmountSum || "0 ₽");
   }
 
   function setText(app, selector, value) {
@@ -697,10 +895,80 @@
   function renderSignals(app, signals) {
     const list = app.querySelector("#signals-list");
     if (!list) return;
-    list.innerHTML = (signals || []).map((signal) => `
-      <div class="signal-pill ${escapeClass(signal.className)}">
-        <span>${escapeHtml(signal.label)}</span><b>${escapeHtml(signal.count)}</b>
-      </div>`).join("");
+    if (!signals || !signals.length) {
+      list.innerHTML = `<li class="info-list-empty">Нет сигналов для отображения.</li>`;
+      return;
+    }
+    list.innerHTML = signals.map((signal) => `
+      <li class="info-list-item signal-item ${escapeClass(signal.className)}">
+        <span class="info-list-dot" aria-hidden="true"></span>
+        <div class="info-list-body">
+          <div class="info-list-title-row"><span>${escapeHtml(signal.label)}</span><b>${escapeHtml(signal.count)}</b></div>
+          <p class="info-list-desc">${escapeHtml(signal.description || "")}</p>
+        </div>
+      </li>`).join("");
+  }
+
+  function renderConnectionHighlights(app, rows) {
+    const list = app.querySelector("#connections-list");
+    if (!list) return;
+    if (!rows || !rows.length) {
+      list.innerHTML = `<li class="info-list-empty">Заметных связей между операциями не обнаружено.</li>`;
+      return;
+    }
+    list.innerHTML = rows.map((row) => `
+      <li class="info-list-item">
+        <span class="info-list-dot" aria-hidden="true"></span>
+        <div class="info-list-body">
+          <div class="info-list-title-row"><span>${escapeHtml(row.counterparty)} <span class="muted-inline">(ИНН ${escapeHtml(row.inn || "не определен")})</span></span><b class="badge ${escapeClass(row.riskClass)}">${escapeHtml(row.risk)}</b></div>
+          <p class="info-list-desc">${escapeHtml(row.summary)}</p>
+        </div>
+      </li>`).join("");
+  }
+
+  function renderReviewQueue(app, rows) {
+    const list = app.querySelector("#review-queue-list");
+    if (!list) return;
+    if (!rows || !rows.length) {
+      list.innerHTML = `<li class="info-list-empty">Все LLM-релевантные операции получили уверенный анализ.</li>`;
+      return;
+    }
+    list.innerHTML = rows.map((row) => `
+      <li class="info-list-item">
+        <span class="info-list-dot yellow" aria-hidden="true"></span>
+        <div class="info-list-body">
+          <div class="info-list-title-row"><span>${escapeHtml(row.counterparty)}</span><b>${escapeHtml(row.amount)}</b></div>
+          <p class="info-list-desc">${escapeHtml(row.reason)}</p>
+        </div>
+      </li>`).join("");
+  }
+
+  function renderRiskMemory(app, rows) {
+    const tbody = app.querySelector("#risk-memory-table tbody");
+    if (!tbody) return;
+    if (!rows || !rows.length) {
+      tbody.innerHTML = `<tr><td colspan="6">История риска по контрагентам этой выписки пока не накоплена.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = rows.map((row) => `
+      <tr>
+        <td title="${escapeAttr(row.counterparty)}">${escapeHtml(row.counterparty)}</td>
+        <td>${escapeHtml(row.inn)}</td>
+        <td>${escapeHtml(row.riskScore)}%</td>
+        <td><span class="badge ${escapeClass(riskGradeClass(row.riskGrade))}">${escapeHtml(riskGradeLabel(row.riskGrade))}</span></td>
+        <td>${escapeHtml(row.eventsCount)}</td>
+        <td>${escapeHtml(row.lastEventDate || "—")}</td>
+      </tr>`).join("");
+  }
+
+  function riskGradeLabel(grade) {
+    const map = { NO_HISTORY: "нет истории", LOW: "низкий", MEDIUM: "средний", HIGH: "высокий", CRITICAL: "критический" };
+    return map[grade] || grade || "—";
+  }
+
+  function riskGradeClass(grade) {
+    const map = { NO_HISTORY: "gray", LOW: "green", MEDIUM: "yellow", HIGH: "red", CRITICAL: "red" };
+    return map[grade] || "gray";
   }
 
   function renderRegistry(app, rows) {
@@ -713,19 +981,72 @@
         <td title="${escapeAttr(row.segment)}">${escapeHtml(row.segment)}</td>
         <td title="${escapeAttr(row.operations)}">${escapeHtml(row.operations)}</td>
         <td title="${escapeAttr(row.risk)}">${escapeHtml(row.risk)}</td>
+        <td>${row.riskGrade && row.riskGrade !== "—" ? `<span class="badge ${escapeClass(riskGradeClass(row.riskGrade))}">${escapeHtml(riskGradeLabel(row.riskGrade))}</span>` : "—"}</td>
       </tr>`).join("");
   }
 
-  function renderLegalReport(app, rows) {
-    const tbody = app.querySelector("#legal-table tbody");
-    if (!tbody) return;
-    tbody.innerHTML = (rows || []).map((row) => `
-      <tr>
-        <td title="${escapeAttr(row.sum)}">${escapeHtml(row.sum)}</td>
-        <td title="${escapeAttr(row.operations)}">${escapeHtml(row.operations)}</td>
-        <td><span class="badge ${escapeClass(row.riskClass)}">${escapeHtml(row.risk)}</span></td>
-        <td><button class="details-btn" type="button" data-detail="${escapeClass(row.detail)}">Подробнее</button></td>
-      </tr>`).join("");
+  function renderLegalConclusion(app, conclusion) {
+    conclusion = conclusion || {};
+    const kpis = conclusion.kpis || {};
+    setText(app, "#legal-kpi-total", formatInteger(kpis.totalAnalyzed || 0));
+    setText(app, "#legal-kpi-clusters", `Кластеров: ${formatInteger((conclusion.processingStats || {}).clustersTotal || 0)}`);
+    setText(app, "#legal-kpi-flagged", formatInteger(kpis.flaggedCount || 0));
+    setText(app, "#legal-kpi-flagged-amount", `Сумма: ${kpis.flaggedAmount || "0 ₽"}`);
+    setText(app, "#legal-kpi-review", formatInteger(kpis.needsReviewCount || 0));
+    setText(app, "#legal-kpi-second-pass", formatInteger(kpis.secondPassCount || 0));
+
+    const normativeList = app.querySelector("#normative-base-list");
+    if (normativeList) {
+      const items = conclusion.normativeBase || [];
+      normativeList.innerHTML = items.length
+        ? items.map((item) => `<li class="info-list-item"><span class="info-list-dot" aria-hidden="true"></span><div class="info-list-body"><div class="info-list-title-row"><span>${escapeHtml(item.label)}</span><b>${escapeHtml(item.count)}</b></div></div></li>`).join("")
+        : `<li class="info-list-empty">Нормативная база не выделена по операциям риска 2-3.</li>`;
+    }
+
+    const practiceList = app.querySelector("#court-practice-list");
+    if (practiceList) {
+      const items = conclusion.courtPractice || [];
+      practiceList.innerHTML = items.length
+        ? items.map((item) => `<li class="info-list-item"><span class="info-list-dot" aria-hidden="true"></span><div class="info-list-body"><div class="info-list-title-row"><span>${escapeHtml(item.label)}</span><b>${escapeHtml(item.count)}</b></div></div></li>`).join("")
+        : `<li class="info-list-empty">Судебная практика не выделена по операциям риска 2-3.</li>`;
+    }
+
+    const opsContainer = app.querySelector("#legal-operations-list");
+    if (opsContainer) {
+      const ops = conclusion.operations || [];
+      opsContainer.innerHTML = ops.length ? ops.map(renderLegalOperationCard).join("") : `<div class="muted-text">Операций риска 2-3 не найдено — итоговое заключение по выписке благоприятное.</div>`;
+    }
+  }
+
+  function renderLegalOperationCard(op) {
+    const basisList = (op.legalBasis || []).map((b) => `<li>${escapeHtml(b)}</li>`).join("");
+    const courtList = (op.courtBasis || []).map((b) => `<li>${escapeHtml(b)}</li>`).join("");
+    return `
+      <article class="conclusion-card" data-op-idx="${escapeAttr(op.idx)}">
+        <div class="conclusion-card-head">
+          <div>
+            <b>${escapeHtml(op.amount)}</b>
+            <span class="muted-inline">${escapeHtml(op.date)} · ${escapeHtml(op.counterparty)} (ИНН ${escapeHtml(op.inn || "не определен")})</span>
+          </div>
+          <span class="badge ${escapeClass(op.riskClass)}">${escapeHtml(op.riskLabel)}</span>
+        </div>
+        <div class="conclusion-card-tags">
+          <span class="tag">${escapeHtml(op.transactionCategory)}</span>
+          <span class="tag">${escapeHtml(op.legalRoute)}</span>
+          <span class="tag">${escapeHtml(op.connectionStrength)}</span>
+          <span class="tag">готовность: ${escapeHtml(op.challengeReadiness)}</span>
+        </div>
+        <p class="conclusion-field"><b>Квалификация:</b> ${escapeHtml(op.legalQualification)}</p>
+        <p class="conclusion-field"><b>Аргументация:</b> ${escapeHtml(op.decisionArgumentation)}</p>
+        <p class="conclusion-field"><b>Объяснение риска:</b> ${escapeHtml(op.riskExplanation)}</p>
+        <p class="conclusion-field"><b>Связь сторон:</b> ${escapeHtml(op.connectionSummary)}</p>
+        ${op.overallRiskAssessment ? `<p class="conclusion-field"><b>Оценка кластера операций:</b> ${escapeHtml(op.overallRiskAssessment)}</p>` : ""}
+        ${basisList ? `<div class="conclusion-field"><b>Нормативная база:</b><ul>${basisList}</ul></div>` : ""}
+        ${courtList ? `<div class="conclusion-field"><b>Судебная практика:</b><ul>${courtList}</ul></div>` : ""}
+        <p class="conclusion-field conclusion-recommendation" data-recommendation-view="${escapeAttr(op.idx)}"><b>Рекомендация:</b> ${escapeHtml(op.recommendation)}</p>
+        ${op.verificationGoal ? `<p class="conclusion-field"><b>Цель проверки:</b> ${escapeHtml(op.verificationGoal)}</p>` : ""}
+        ${op.riskChangeConditions ? `<p class="conclusion-field"><b>Что изменит риск:</b> ${escapeHtml(op.riskChangeConditions)}</p>` : ""}
+      </article>`;
   }
 
   function renderCharts(app, chartData) {
@@ -777,7 +1098,6 @@
     }).join("");
     el.innerHTML = svgWrap(width, height, `${defs()}${grid}${bars}${makeAxis(margin, innerW, innerH)}`);
     attachTooltip(el);
-    animateChart(el);
   }
 
   function renderLineChart(el, rows, withArea) {
@@ -796,9 +1116,6 @@
     const grid = makeHorizontalGrid(margin, innerW, innerH, maxVal, unit) + makeVerticalGrid(margin, innerW, innerH, rows.length);
     const labels = rows.map((d, i) => `<text class="axis-label" x="${xFor(i).toFixed(1)}" y="${height - 16}" text-anchor="middle">${escapeSvg(d[xKey])}</text>`).join("");
     const legend = makeLegend(width, series);
-    const useRevealClip = !withArea;
-    const clipId = uniqueChartId("lineClip");
-    const clip = useRevealClip ? `<clipPath id="${clipId}"><rect class="chart-reveal-clip" x="${margin.left}" y="0" width="0" height="${height}" data-final-width="${innerW}" data-duration="1650"></rect></clipPath>` : "";
     const drawn = series.map((s, sIdx) => {
       const points = rows.map((d, i) => [xFor(i), yFor(d[s.key]), Number(d[s.key]) || 0, d[xKey]]);
       const path = smoothPath(points);
@@ -807,10 +1124,8 @@
       const circles = points.map((p, pIdx) => `<circle class="point-${cls} chart-point" style="--i:${pIdx + sIdx}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4.2" data-tooltip="${escapeAttr(p[3])}: ${escapeAttr(s.label)} — ${formatValue(p[2], unit)}"></circle>`).join("");
       return `<g class="chart-series chart-series-${sIdx}">${area}<path class="line-${cls} chart-line" d="${path}"></path>${circles}</g>`;
     }).join("");
-    const drawnGroup = useRevealClip ? `<g class="chart-drawn" clip-path="url(#${clipId})">${drawn}</g>` : `<g class="chart-drawn">${drawn}</g>`;
-    el.innerHTML = svgWrap(width, height, `${defs()}${clip}${grid}${legend}${drawnGroup}${labels}${makeAxis(margin, innerW, innerH)}`);
+    el.innerHTML = svgWrap(width, height, `${defs()}${grid}${legend}<g class="chart-drawn">${drawn}</g>${labels}${makeAxis(margin, innerW, innerH)}`);
     attachTooltip(el);
-    animateChart(el);
   }
 
   function renderAreaChart(el, rows) {
@@ -827,14 +1142,11 @@
     const yFor = (v) => margin.top + innerH - Math.min(Math.abs(Number(v) || 0) / maxVal, 1) * innerH;
     const points = rows.map((d, i) => [xFor(i), yFor(d[yKey]), Number(d[yKey]) || 0, d[xKey]]);
     const path = smoothPath(points);
-    const clipId = uniqueChartId("areaClip");
-    const clip = `<clipPath id="${clipId}"><rect class="chart-reveal-clip" x="${margin.left}" y="0" width="0" height="${height}" data-final-width="${innerW}" data-duration="1500"></rect></clipPath>`;
     const area = `<path class="area-green chart-area" d="${path} L ${points[points.length - 1][0].toFixed(1)} ${margin.top + innerH} L ${points[0][0].toFixed(1)} ${margin.top + innerH} Z"></path>`;
     const circles = points.map((p, pIdx) => `<circle class="point-green chart-point" style="--i:${pIdx}" cx="${p[0].toFixed(1)}" cy="${p[1].toFixed(1)}" r="4" data-tooltip="${escapeAttr(p[3])}: ${p[2]}"></circle>`).join("");
     const labels = rows.map((d, i) => `<text class="axis-label" x="${xFor(i).toFixed(1)}" y="${height - 12}" text-anchor="middle">${escapeSvg(d[xKey])}</text>`).join("");
-    el.innerHTML = svgWrap(width, height, `${defs()}${clip}${makeHorizontalGrid(margin, innerW, innerH, maxVal, "")}<g class="chart-drawn" clip-path="url(#${clipId})">${area}<path class="line-green chart-line" d="${path}"></path>${circles}</g>${labels}${makeAxis(margin, innerW, innerH)}`);
+    el.innerHTML = svgWrap(width, height, `${defs()}${makeHorizontalGrid(margin, innerW, innerH, maxVal, "")}<g class="chart-drawn">${area}<path class="line-green chart-line" d="${path}"></path>${circles}</g>${labels}${makeAxis(margin, innerW, innerH)}`);
     attachTooltip(el);
-    animateChart(el);
   }
 
   function renderDonutChart(el, rows) {
@@ -861,7 +1173,6 @@
     const legend = rows.map((d) => `<div><span>${escapeHtml(d[nameKey])}</span><b>${escapeHtml(d[valueKey])}</b></div>`).join("");
     el.innerHTML = `<div class="donut-grid">${svgWrap(width, height, arcs + `<circle class="donut-hole" cx="${cx}" cy="${cy}" r="${r - stroke / 2}" fill="#fff"></circle>`)}<div class="donut-legend">${legend}</div></div>`;
     attachTooltip(el);
-    animateChart(el);
   }
 
   function makeHorizontalGrid(margin, innerW, innerH, maxVal, unit) {
@@ -964,161 +1275,10 @@
     });
   }
 
-  let chartObserver = null;
-  let countupObserver = null;
-  let revealObserver = null;
-
-  function initRevealAnimations(app) {
-    const nodes = Array.from(app.querySelectorAll(".page.active .card, .page.active .two-col-grid"));
-    nodes.forEach((node) => {
-      if (!(node instanceof HTMLElement)) return;
-      node.classList.add("reveal-item", "reveal-visible");
-      node.style.removeProperty("--reveal-delay");
-      queueNestedAnimations(node, 0);
-    });
-  }
-
-  function getRevealObserver() {
-    return null;
-  }
-
-  function queueNestedAnimations(container, delay = 0) {
-    if (!(container instanceof HTMLElement)) return;
-    const charts = Array.from(container.querySelectorAll(".chart-shell"));
-    charts.forEach((chart) => {
-      if (chart instanceof HTMLElement) startChartAnimation(chart);
-    });
-
-    const numbers = Array.from(container.querySelectorAll("[data-countup-prepared=\"1\"]"));
-    numbers.forEach((node) => {
-      if (node instanceof HTMLElement) animateCountup(node);
-    });
-  }
-
-  function getChartObserver() {
-    return null;
-  }
-
-  function animateChart(root) {
-    if (!(root instanceof HTMLElement)) return;
-    root.dataset.animationPrepared = "1";
-    root.dataset.chartAnimated = "1";
-    preparePathDraw(root);
-    startChartAnimation(root);
-  }
-
-  function preparePathDraw(root) {
-    root.querySelectorAll(".chart-reveal-clip").forEach((clip) => {
-      const finalWidth = Number(clip.dataset.finalWidth || clip.getAttribute("width") || 0);
-      clip.dataset.finalWidth = String(finalWidth);
-      clip.setAttribute("width", String(finalWidth));
-    });
-    root.querySelectorAll(".chart-line, .donut-arc").forEach((path, i) => {
-      if (path.style) {
-        path.style.setProperty("stroke-dasharray", "none", "important");
-        path.style.setProperty("stroke-dashoffset", "0", "important");
-        path.style.setProperty("--i", String(i));
-      }
-    });
-    root.classList.add("chart-ready");
-  }
-
-  function startChartAnimation(root) {
-    if (!(root instanceof HTMLElement)) return;
-    root.dataset.chartAnimated = "1";
-    root.querySelectorAll(".chart-reveal-clip").forEach((clip) => {
-      clip.setAttribute("width", clip.dataset.finalWidth || clip.getAttribute("width") || "0");
-      clip.dataset.clipAnimated = "1";
-    });
-    root.querySelectorAll(".chart-line, .donut-arc").forEach((path) => {
-      path.style.setProperty("stroke-dasharray", "none", "important");
-      path.style.setProperty("stroke-dashoffset", "0", "important");
-    });
-    root.classList.add("chart-ready");
-  }
-
-  function initCountups(app) {
-    const nodes = app.querySelectorAll("[data-countup], .metric-card strong");
-    nodes.forEach((node) => {
-      if (!(node instanceof HTMLElement)) return;
-      if (!node.dataset.finalText || node.dataset.countupLocked !== "1") node.dataset.finalText = node.textContent.trim();
-      const parsed = parseCountupTarget(node);
-      if (!parsed) return;
-      node.dataset.countupValue = String(parsed.value);
-      node.dataset.countupPrefix = parsed.prefix;
-      node.dataset.countupSuffix = parsed.suffix;
-      node.dataset.countupDecimals = String(parsed.decimals);
-      node.dataset.countupPrepared = "1";
-      node.dataset.countupLocked = "1";
-      node.textContent = `${parsed.prefix}${formatCountupNumber(parsed.value, parsed.decimals)}${parsed.suffix}`;
-      node.dataset.countupAnimated = "1";
-    });
-  }
-
-  function parseCountupTarget(node) {
-    const text = node.dataset.finalText || node.textContent || "";
-    const valueFromData = node.dataset.value ? Number(String(node.dataset.value).replace(",", ".")) : NaN;
-    if (Number.isFinite(valueFromData)) {
-      return {
-        value: valueFromData,
-        prefix: node.dataset.prefix || "",
-        suffix: node.dataset.suffix || "",
-        decimals: Number(node.dataset.decimals ?? (String(node.dataset.value).includes(".") || String(node.dataset.value).includes(",") ? 1 : 0)) || 0
-      };
-    }
-    const match = text.match(/(-?\d+(?:[\s\u00a0]?\d{3})*(?:[,.]\d+)?|-?\d+(?:[,.]\d+)?)/);
-    if (!match) return null;
-    const rawNumber = match[0];
-    const numeric = Number(rawNumber.replace(/[\s\u00a0]/g, "").replace(",", "."));
-    if (!Number.isFinite(numeric)) return null;
-    return {
-      value: numeric,
-      prefix: text.slice(0, match.index),
-      suffix: text.slice((match.index || 0) + rawNumber.length),
-      decimals: rawNumber.includes(",") || rawNumber.includes(".") ? rawNumber.split(/[,.]/)[1].length : 0
-    };
-  }
-
-  function animateCountup(node) {
-    if (!(node instanceof HTMLElement)) return;
-    const value = Number(node.dataset.countupValue || 0);
-    const prefix = node.dataset.countupPrefix || "";
-    const suffix = node.dataset.countupSuffix || "";
-    const decimals = Number(node.dataset.countupDecimals || 0);
-    node.textContent = `${prefix}${formatCountupNumber(value, decimals)}${suffix}`;
-    node.dataset.countupAnimated = "1";
-  }
-
-  function formatCountupNumber(value, decimals) {
-    return Number(value).toFixed(decimals).replace(".", ",");
-  }
-
   function formatInteger(value) {
     const number = Number(value);
     if (!Number.isFinite(number)) return "0";
     return Math.round(number).toLocaleString("ru-RU");
-  }
-
-  function animateClipRects(root) {
-    root.querySelectorAll(".chart-reveal-clip").forEach((clip) => {
-      const targetWidth = Number(clip.dataset.finalWidth || 0);
-      if (Number.isFinite(targetWidth) && targetWidth > 0) clip.setAttribute("width", String(targetWidth));
-      clip.dataset.clipAnimated = "1";
-    });
-  }
-
-  function easeInOutCubic(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  }
-
-  function uniqueChartId(prefix) {
-    uniqueChartId.counter = (uniqueChartId.counter || 0) + 1;
-    return `${prefix}-${Date.now().toString(36)}-${uniqueChartId.counter}`;
-  }
-
-  function isElementActuallyVisible(el) {
-    const rect = el.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0 && rect.bottom > 0 && rect.right > 0 && rect.top < window.innerHeight && rect.left < window.innerWidth;
   }
 
   function getElementTarget(event) {
@@ -1221,5 +1381,4 @@
 
   const observer = new MutationObserver(() => boot());
   observer.observe(document.documentElement, { childList: true, subtree: true });
-  // Fixed10: low-end stable mode. Animations are intentionally disabled; all elements render immediately.
 })();

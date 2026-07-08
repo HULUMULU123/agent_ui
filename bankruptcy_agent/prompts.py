@@ -679,7 +679,7 @@ Statement должен включать:
 Верни только JSON:
 {{
   "normative_queries": [],
-  "case_law_queries": [],
+  "case_law_queries": []
 }}
 
 Пояснение полей:
@@ -689,23 +689,6 @@ normative_queries
 
 case_law_queries
 Statement-запросы в базу судебной практики.
-
-criteria_to_check
-Юридически значимые критерии, которые должен проверить анализатор.
-Не выводы, а именно критерии.
-
-documents_courts_usually_check
-Документы, которые суды обычно исследуют по такому типу операций.
-
-risk_increasing_factors
-Факторы, которые могут усилить риск, если они подтверждены по текущей операции.
-
-risk_reducing_factors
-Факторы, которые могут снизить риск или подтвердить обычность операции.
-
-case_law_usage_rule
-Короткое правило, как использовать найденную практику.
-Пример: "использовать как чеклист документов и критериев, не как доказательство риска".
 
 ПРАВИЛА
 
@@ -1573,12 +1556,12 @@ ORCHSTRATOR_SYSTEM_PROMPT = (
     + ORCHESTRATOR_PROMPT
 )
 
+# Правовой модуль намеренно не получает SHARED_AGENT_CONTRACT/DATA_DICTIONARY:
+# он не видит сырые поля операций (это делает orchestrator/analyzer), поэтому
+# эти ~9К символов контракта операций были бы чистым расходом токенов на
+# каждый вызов search_practice_and_normative.
 LEGAL_MODULE_SYSTEM_PROMPT = (
-    SHARED_AGENT_CONTRACT
-    + "\n\n"
-    + DATA_DICTIONARY
-    + "\n\n"
-    + LEGAL_ANALYSIS_CONTEXT
+    LEGAL_ANALYSIS_CONTEXT
     + "\n\n"
     + LEGAL_MODULE_PROMPT
 )
