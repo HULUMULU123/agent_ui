@@ -11,7 +11,7 @@ import pandas as pd
 from .config import REQUIRED_TRANSACTION_COLUMNS
 from .fallback import risk_class, risk_label
 from .output_normalizer import normalize_agent_output
-from .preprocessing import normalize_columns
+from .preprocessing import _first_existing, normalize_columns
 from .utils import clean_text, ensure_list, format_money, int_safe, short_string
 def build_payload_from_agent_outputs(
     input_df: pd.DataFrame,
@@ -75,6 +75,7 @@ def build_payload_from_agent_outputs(
     registry = build_counterparty_registry(analysis, risk_grade_by_inn)
     legal_conclusion = build_legal_conclusion(analysis, warnings, cluster_strategy or {}, second_pass_updated)
     main_tables = build_main_tables(input_df, analysis)
+    gray_zone = build_gray_zone(analysis)
 
     needs_review_count = int(analysis.get("needs_review", pd.Series(dtype=bool)).astype(bool).sum()) if not analysis.empty else 0
 
@@ -126,6 +127,7 @@ def build_payload_from_agent_outputs(
         "counterpartyRegistry": registry,
         "legalConclusion": legal_conclusion,
         "mainTables": main_tables,
+        "grayZone": gray_zone,
         "modal": build_modal_texts(analysis),
     }
 def build_statement_summary(input_df: pd.DataFrame, prepared: pd.DataFrame, sampled: pd.DataFrame, warnings: list[str]) -> dict[str, Any]:
@@ -252,6 +254,64 @@ def build_analysis_source_chart(analysis: pd.DataFrame) -> list[dict[str, Any]]:
     if counts.empty:
         return [{"source": "нет данных", "value": 0}]
     return [{"source": label_map.get(str(k), str(k)), "value": int(v)} for k, v in counts.items()]
+def build_gray_zone(analysis: pd.DataFrame, limit: int = 300) -> dict[str, Any]:
+    """"Серая зона" главной страницы: операции без уверенного типа/кластера, которые не
+    попадают в обычный поток анализа риска и нуждаются в ручной проверке отдельно от
+    рекомендаций по риску 2-3.
+
+    Две независимые причины (могут пересекаться):
+    - шумовой кластер (cluster_id == -1) -- adaptive-кластеризация целиком пропускает такие
+      операции (см. clustering_strategy.apply_cluster_strategy), сейчас это единственное
+      место в интерфейсе, где они вообще видны;
+    - неопознанный тип операции -- классификатор (operation_classifier.py) не нашел ни
+      предметного слова, ни названного типа договора в назначении платежа.
+    """
+    empty = {"totalCount": 0, "noiseClusterCount": 0, "unknownTypeCount": 0, "operations": []}
+    if analysis.empty:
+        return empty
+
+    cluster_series = pd.to_numeric(analysis.get("cluster_id", pd.Series(dtype=float)), errors="coerce")
+    is_noise_cluster = cluster_series == -1
+    operation_type = analysis.get("operation_type", pd.Series([""] * len(analysis), index=analysis.index)).fillna("").astype(str)
+    is_unknown_type = operation_type.str.startswith("Неопознанный платёж")
+
+    mask = is_noise_cluster | is_unknown_type
+    if not mask.any():
+        return empty
+
+    subset = analysis[mask].copy()
+    subset["_is_noise_cluster"] = is_noise_cluster[mask]
+    subset["_is_unknown_type"] = is_unknown_type[mask]
+    subset["amount_abs"] = pd.to_numeric(subset.get("amount", 0), errors="coerce").abs().fillna(0.0)
+    subset = subset.sort_values("amount_abs", ascending=False).head(limit)
+
+    rows = []
+    for _, row in subset.iterrows():
+        reasons = []
+        if bool(row.get("_is_noise_cluster")):
+            reasons.append("шумовой кластер")
+        if bool(row.get("_is_unknown_type")):
+            reasons.append("тип операции не распознан")
+        rows.append({
+            "idx": row.get("idx", ""),
+            "date": row.get("date", ""),
+            "amount": format_money(row.get("amount", 0)),
+            "counterparty": clean_text(row.get("counterparty", "")),
+            "counterpartyInn": clean_text(row.get("counterparty_inn", "")),
+            "operationType": clean_text(row.get("operation_type", "")) or "не определен",
+            "clusterId": clean_text(row.get("cluster_id", "")),
+            "reasons": reasons,
+            "recommendedDocuments": ensure_list(row.get("recommended_documents", [])),
+        })
+
+    return {
+        "totalCount": int(mask.sum()),
+        "noiseClusterCount": int(is_noise_cluster.sum()),
+        "unknownTypeCount": int(is_unknown_type.sum()),
+        "operations": rows,
+    }
+
+
 def build_review_queue(analysis: pd.DataFrame, limit: int = 15) -> list[dict[str, Any]]:
     """Операции, оставшиеся без уверенного анализа (низкая уверенность/нет представителя)."""
     if analysis.empty or "needs_review" not in analysis.columns:
@@ -369,6 +429,8 @@ def build_legal_conclusion(
                 "recommendation": row.get("recommendation", ""),
                 "verificationGoal": clean_text(row.get("recommendation_verification_goal", "")),
                 "riskChangeConditions": clean_text(row.get("recommendation_risk_change_conditions", "")),
+                "operationType": clean_text(row.get("operation_type", "")),
+                "documentsNeeded": ensure_list(row.get("recommended_documents", [])),
             })
 
     processing_stats = {
@@ -385,9 +447,20 @@ def build_legal_conclusion(
         "operations": operations,
         "processingStats": processing_stats,
     }
-def build_main_tables(input_df: pd.DataFrame, analysis: pd.DataFrame, rows: int = 50) -> dict[str, Any]:
-    """Превью исходной выписки и итоговой таблицы агента для главной страницы."""
-    original = _table_preview(input_df, rows)
+ORIGINAL_PREVIEW_COLUMNS = [
+    "debit_inn", "credit_inn", "date", "debit_name", "credit_name",
+    "debit_amount", "credit_amount", "purpose",
+]
+
+
+def build_main_tables(input_df: pd.DataFrame, analysis: pd.DataFrame, rows: int | None = None) -> dict[str, Any]:
+    """Превью исходной выписки и итоговой таблицы агента для главной страницы.
+
+    `rows=None` — без обрезки: на главной странице таблицы должны листаться
+    целиком (постраничный вывод на клиенте уже это умеет), а не показывать
+    только первые N операций.
+    """
+    original = _table_preview(_restrict_to_original_preview_columns(input_df), rows)
     final_cols = [
         "idx", "date", "amount", "transaction_category", "counterparty", "risk_label",
         "legal_qualification", "analysis_source", "propagation_confidence", "recommendation",
@@ -400,8 +473,28 @@ def build_main_tables(input_df: pd.DataFrame, analysis: pd.DataFrame, rows: int 
             final_df["amount"] = final_df["amount"].apply(format_money)
     final = _table_preview(final_df, rows)
     return {"original": original, "finalAnalysis": final}
-def _table_preview(df: pd.DataFrame, rows: int = 15) -> dict[str, Any]:
-    head = df.head(rows).copy()
+
+
+def _restrict_to_original_preview_columns(input_df: pd.DataFrame) -> pd.DataFrame:
+    """Приводит сырую выписку к канонич. именам и оставляет только те колонки,
+    которые сотруднику реально нужно видеть в превью (без служебных полей
+    вроде cluster/anomaly_score/graph_connections)."""
+    normalized = normalize_columns(input_df)
+    rename: dict[str, str] = {}
+    debit_amount_col = _first_existing(normalized, ["debit_amount", "Дебет сумма", "Сумма дебет"])
+    credit_amount_col = _first_existing(normalized, ["credit_amount", "Кредит сумма", "Сумма кредит"])
+    if debit_amount_col and debit_amount_col != "debit_amount":
+        rename[debit_amount_col] = "debit_amount"
+    if credit_amount_col and credit_amount_col != "credit_amount":
+        rename[credit_amount_col] = "credit_amount"
+    if rename:
+        normalized = normalized.rename(columns=rename)
+    available = [c for c in ORIGINAL_PREVIEW_COLUMNS if c in normalized.columns]
+    return normalized[available] if available else normalized
+
+
+def _table_preview(df: pd.DataFrame, rows: int | None = None) -> dict[str, Any]:
+    head = df if rows is None else df.head(rows)
     head = head.astype(object).where(head.notna(), "")
     columns = [str(col) for col in head.columns]
     records = [{str(k): ("" if v is None else str(v)) for k, v in row.items()} for row in head.to_dict(orient="records")]

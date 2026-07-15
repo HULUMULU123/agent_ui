@@ -72,8 +72,19 @@ def recommendation_summary(recommendation_obj: Any, row: dict[str, Any], categor
     if text:
         return text
     return recommendation_for(category, risk_level_value)
-def documents_from_output(recommendation_obj: Any, challenge: dict[str, Any], category: str, risk_level_value: int) -> list[str]:
+def documents_from_output(
+    recommendation_obj: Any,
+    challenge: dict[str, Any],
+    category: str,
+    risk_level_value: int,
+    classifier_documents: Any = None,
+) -> list[str]:
+    """Документы к запросу: сначала детерминированный список от классификатора типа
+    операции (operation_classifier.py, привязан к закрытому каталогу типов и потому наиболее
+    предсказуем), затем то, что предложил сам LLM-анализатор, и только если ничего не
+    нашлось — грубый fallback по категории/risk_level."""
     docs = []
+    docs.extend(ensure_list(classifier_documents))
     if isinstance(recommendation_obj, dict):
         docs.extend(ensure_list(recommendation_obj.get("documents_to_request", [])))
     docs.extend(ensure_list(challenge.get("documents_needed", [])))

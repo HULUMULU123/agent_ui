@@ -17,6 +17,7 @@
     initDownloads(app, data);
     initRecommendationCards(app, data);
     initRecommendationsPager(app);
+    initGrayZonePager(app);
     renderAll(app, data);
   }
 
@@ -40,6 +41,7 @@
         counterpartyRegistry: [],
         legalConclusion: { kpis: {}, normativeBase: [], courtPractice: [], operations: [], processingStats: {} },
         mainTables: { original: { columns: [], rows: [] }, finalAnalysis: { columns: [], rows: [] } },
+        grayZone: { totalCount: 0, noiseClusterCount: 0, unknownTypeCount: 0, operations: [] },
         modal: {}
       };
     }
@@ -59,6 +61,7 @@
       counterpartyRegistry: Array.isArray(raw.counterpartyRegistry) ? raw.counterpartyRegistry : [],
       legalConclusion: raw.legalConclusion || { kpis: {}, normativeBase: [], courtPractice: [], operations: [], processingStats: {} },
       mainTables: raw.mainTables || { original: { columns: [], rows: [] }, finalAnalysis: { columns: [], rows: [] } },
+      grayZone: raw.grayZone || { totalCount: 0, noiseClusterCount: 0, unknownTypeCount: 0, operations: [] },
       modal: raw.modal || {}
     };
   }
@@ -76,6 +79,7 @@
     renderLegalConclusion(app, data.legalConclusion);
     renderMainTables(app, data.mainTables);
     renderRecommendationCards(app, data);
+    renderGrayZone(app, data.grayZone);
     renderCharts(app, data.charts);
   }
 
@@ -89,7 +93,7 @@
     app.classList.toggle("no-analysis", !done);
     const statsPlaceholder = app.querySelector("#stats-empty-card");
     if (statsPlaceholder instanceof HTMLElement) statsPlaceholder.hidden = done;
-    ["#main-original-table-card", "#main-final-table-card", "#recommendations-card", "#main-summary-grid"].forEach((selector) => {
+    ["#main-original-table-card", "#main-final-table-card", "#recommendations-card", "#main-summary-grid", "#gray-zone-card"].forEach((selector) => {
       const node = app.querySelector(selector);
       if (node instanceof HTMLElement) node.hidden = !done;
     });
@@ -247,7 +251,6 @@
           renderAll(app, nextData);
           initSmartTable(app, nextData);
           initDownloads(app, nextData);
-          showAnalysisPreview(app, readBridgeText("agent-run-preview"), readBridgeText("agent-run-status"));
         } catch (error) {
           console.warn("Не удалось применить dashboard_payload из backend", error);
         }
@@ -332,14 +335,13 @@
     const text = app.querySelector("#agent-loading-text");
     const fill = app.querySelector("#agent-progress-fill");
     const percent = app.querySelector("#agent-progress-percent");
-    if (text) text.textContent = message || "Анализ завершен. Шапка таблицы выведена в консоль.";
+    if (text) text.textContent = message || "Анализ завершен.";
     if (fill) fill.style.width = "100%";
     if (percent) percent.textContent = "100%";
     modal?.classList.add("complete");
-    showAnalysisPreview(app, readBridgeText("agent-run-preview"), message || "Анализ завершен");
     window.setTimeout(() => {
       closeAgentLoadingModal(app);
-      app.querySelector('#analysis-preview-card')?.scrollIntoView({ block: "start" });
+      app.querySelector('#main-summary-grid')?.scrollIntoView({ block: "start" });
     }, 800);
   }
 
@@ -364,71 +366,6 @@
     modal.classList.remove("complete", "warning");
   }
 
-  function readBridgeText(elementId) {
-    const node = document.getElementById(elementId);
-    if (!node) return "";
-    const textarea = node.querySelector?.("textarea");
-    if (textarea && typeof textarea.value === "string") return textarea.value.trim();
-    return (node.textContent || "").trim();
-  }
-
-  function showAnalysisPreview(app, previewText, statusText) {
-    const card = app.querySelector("#analysis-preview-card");
-    const table = app.querySelector("#analysis-preview-table");
-    const status = app.querySelector("#analysis-preview-status");
-    if (!(card instanceof HTMLElement) || !(table instanceof HTMLTableElement) || !status) return;
-
-    const cleanPreview = String(previewText || "").trim();
-    const parsed = parsePreviewTable(cleanPreview);
-    renderPreviewTable(table, parsed);
-
-    status.textContent = String(statusText || "Анализ завершен").replace(/^.*ANALYSIS_DONE:\s*/s, "Готово: ").slice(0, 180);
-    card.hidden = false;
-    app.classList.add("has-analysis");
-    app.classList.remove("no-analysis");
-  }
-
-  function parsePreviewTable(raw) {
-    const fallback = { columns: ["Сообщение"], rows: [{ "Сообщение": "Шапка файла не получена из backend. Проверьте agent_runner.py и callback start_agent_analysis." }] };
-    if (!raw) return fallback;
-
-    try {
-      const parsed = JSON.parse(raw);
-      const columns = Array.isArray(parsed.columns) ? parsed.columns.map(String) : [];
-      const rows = Array.isArray(parsed.rows) ? parsed.rows : [];
-      if (columns.length && rows.length) return { columns, rows };
-      if (columns.length) return { columns, rows: [] };
-    } catch (_) {
-      // Фолбэк для старого backend: если пришел df.head().to_string(), показываем его
-      // внутри одной табличной колонки, а не бесформенным pre-блоком.
-    }
-
-    const lines = raw.split(/\r?\n/).filter(Boolean);
-    if (!lines.length) return fallback;
-    return {
-      columns: ["Шапка файла"],
-      rows: lines.map((line) => ({ "Шапка файла": line }))
-    };
-  }
-
-  function renderPreviewTable(table, preview) {
-    const columns = Array.isArray(preview.columns) && preview.columns.length ? preview.columns : ["Сообщение"];
-    const rows = Array.isArray(preview.rows) ? preview.rows : [];
-    const thead = table.querySelector("thead");
-    const tbody = table.querySelector("tbody");
-    if (!thead || !tbody) return;
-
-    thead.innerHTML = `<tr>${columns.map((col) => `<th title="${escapeAttr(col)}">${escapeHtml(col)}</th>`).join("")}</tr>`;
-    if (!rows.length) {
-      tbody.innerHTML = `<tr>${columns.map((_, index) => `<td>${index === 0 ? "Нет строк для предпросмотра" : ""}</td>`).join("")}</tr>`;
-      return;
-    }
-    tbody.innerHTML = rows.map((row) => `<tr>${columns.map((col) => {
-      const value = row && Object.prototype.hasOwnProperty.call(row, col) ? row[col] : "";
-      return `<td title="${escapeAttr(value)}">${escapeHtml(value)}</td>`;
-    }).join("")}</tr>`).join("");
-  }
-
   function addFilesToHistory(app, data, files) {
     if (!files || !files.length) return;
     Array.from(files).forEach((file) => {
@@ -445,13 +382,22 @@
     renderDocuments(app, data.documents);
   }
 
+  let smartTableCurrentData = null;
+
   function initSmartTable(app, data) {
+    smartTableCurrentData = data;
     const table = app.querySelector("#transactions-table");
     const tbody = table ? table.querySelector("tbody") : null;
     const pageSizeSelect = app.querySelector("#page-size");
     const pageInfo = app.querySelector("#page-info");
     const pageLabel = app.querySelector("#page-label");
     if (!table || !tbody || !pageSizeSelect || !pageInfo || !pageLabel) return;
+
+    if (table.dataset.smartTableInit === "1") {
+      window.financeDashboardApp?.refreshSmartTable?.();
+      return;
+    }
+    table.dataset.smartTableInit = "1";
 
     let sortKey = null;
     let sortDir = 1;
@@ -492,7 +438,7 @@
     });
 
     function getFilteredRows() {
-      let rows = (data.transactions || []).filter((row) => {
+      let rows = (smartTableCurrentData?.transactions || []).filter((row) => {
         return Object.entries(filters).every(([key, value]) => !value || String(row[key] ?? "").toLowerCase().includes(value));
       });
       if (sortKey) {
@@ -529,7 +475,11 @@
     render();
   }
 
+  let downloadsInitialized = false;
+
   function initDownloads(app, data) {
+    if (downloadsInitialized) return;
+    downloadsInitialized = true;
     app.querySelector("#download-transactions")?.addEventListener("click", () => {
       const rows = window.financeDashboardApp?.getFilteredTransactions?.() || data.transactions || [];
       downloadCsv("transactions.csv", rows, ["idx", "date", "cluster_id", "amount", "transaction_category", "counterparty", "inn", "risk_level", "connection_basis", "legal_qualification", "challenge_readiness", "recommendation", "analysis_source", "propagation_confidence"]);
@@ -542,13 +492,17 @@
     });
 
     app.querySelector("#download-all-zip")?.addEventListener("click", () => {
-      const zipContainer = document.getElementById("agent-export-zip");
-      const zipLink = zipContainer?.querySelector('a[href]') || zipContainer?.querySelector("a[download]");
-      if (zipLink instanceof HTMLAnchorElement) {
-        zipLink.click();
-      } else {
-        window.alert("Архив таблиц еще не готов. Запустите анализ в рабочем режиме (не тестовом) и дождитесь завершения.");
+      const originalData = mainOriginalTableController?.getExportData?.() || { columns: [], rows: [] };
+      const finalData = mainFinalTableController?.getExportData?.() || { columns: [], rows: [] };
+      if (!originalData.rows.length && !finalData.rows.length) {
+        window.alert("Таблицы еще не готовы. Сначала запустите анализ выписки.");
+        return;
       }
+      const files = [
+        { name: "исходная_выписка.csv", content: tableToCsvString(originalData.columns, originalData.rows) },
+        { name: "итоговая_таблица_агента.csv", content: tableToCsvString(finalData.columns, finalData.rows) },
+      ];
+      downloadBlob("agent_tables.zip", createZipBlob(files));
     });
 
     app.querySelector("#open-full-table-btn")?.addEventListener("click", () => {
@@ -567,7 +521,15 @@
     }
     const finalTable = app.querySelector("#main-final-table");
     if (finalTable instanceof HTMLTableElement) {
-      mainFinalTableController = createDynamicTable(app, finalTable, "main-final-table");
+      mainFinalTableController = createDynamicTable(app, finalTable, "main-final-table", {
+        editable: true,
+        selectable: true,
+        onCellEdit: (row, col, value) => {
+          if (col === "recommendation") {
+            patchRecommendation(app, window.financeDashboardApp?.data, row.idx, value, { skipFinalTable: true });
+          }
+        },
+      });
     }
   }
 
@@ -581,7 +543,11 @@
   // каждой колонке, постраничный вывод — тот же уровень интерактивности, что и
   // у таблицы транзакций на странице «Статистика», но с колонками, которые
   // определяются на лету (структура исходного файла заранее не известна).
-  function createDynamicTable(app, table, idPrefix) {
+  // options.editable — все ячейки становятся полями ввода, правки сразу
+  // сохраняются в данные строки. options.selectable — чекбоксы строк, чтобы
+  // выбрать, что пойдет в выгрузку (getExportData).
+  function createDynamicTable(app, table, idPrefix, options) {
+    options = options || {};
     const tbody = table.querySelector("tbody");
     const thead = table.querySelector("thead");
     const pageInfo = app.querySelector(`#${idPrefix}-page-info`);
@@ -595,6 +561,16 @@
     let sortDir = 1;
     let page = 1;
     const filters = {};
+    const selectedIds = new Set();
+
+    function getRowId(row) {
+      if (row && row.idx !== undefined && row.idx !== null && row.idx !== "") return String(row.idx);
+      try {
+        return `row-${JSON.stringify(row)}`;
+      } catch (_) {
+        return `row-${Math.random()}`;
+      }
+    }
 
     function renderHeader() {
       if (!thead) return;
@@ -602,9 +578,10 @@
         thead.innerHTML = "";
         return;
       }
+      const selectHeaderCell = options.selectable ? `<th class="row-select-col"><input type="checkbox" data-select-all aria-label="Выбрать все строки"></th>` : "";
       thead.innerHTML = `
-        <tr>${columns.map((col) => `<th data-key="${escapeAttr(col)}" title="${escapeAttr(col)}">${escapeHtml(col)} <span class="sort-mark">↕</span></th>`).join("")}</tr>
-        <tr class="filter-row">${columns.map((col) => `<td><input data-filter="${escapeAttr(col)}" aria-label="Фильтр ${escapeAttr(col)}"></td>`).join("")}</tr>`;
+        <tr>${selectHeaderCell}${columns.map((col) => `<th data-key="${escapeAttr(col)}" title="${escapeAttr(col)}">${escapeHtml(col)} <span class="sort-mark">↕</span></th>`).join("")}</tr>
+        <tr class="filter-row">${options.selectable ? "<td></td>" : ""}${columns.map((col) => `<td><input data-filter="${escapeAttr(col)}" aria-label="Фильтр ${escapeAttr(col)}"></td>`).join("")}</tr>`;
       thead.querySelectorAll("th[data-key]").forEach((th) => {
         th.addEventListener("click", () => {
           const key = th.dataset.key;
@@ -621,6 +598,14 @@
           render();
         });
       });
+      const selectAll = thead.querySelector("input[data-select-all]");
+      if (selectAll) {
+        selectAll.addEventListener("change", () => {
+          if (selectAll.checked) rows.forEach((row) => selectedIds.add(getRowId(row)));
+          else selectedIds.clear();
+          render();
+        });
+      }
     }
 
     function getFilteredRows() {
@@ -651,15 +636,49 @@
       const start = (page - 1) * pageSize;
       const visible = filtered.slice(start, start + pageSize);
       tbody.innerHTML = visible.length
-        ? visible.map((row) => `<tr>${columns.map((col) => {
-            const value = row && Object.prototype.hasOwnProperty.call(row, col) ? row[col] : "";
-            return `<td title="${escapeAttr(value)}">${escapeHtml(value)}</td>`;
-          }).join("")}</tr>`).join("")
+        ? visible.map((row) => {
+            const rowId = getRowId(row);
+            const selectCell = options.selectable
+              ? `<td class="row-select-cell"><input type="checkbox" data-row-select="${escapeAttr(rowId)}" ${selectedIds.has(rowId) ? "checked" : ""}></td>`
+              : "";
+            const cells = columns.map((col) => {
+              const value = row && Object.prototype.hasOwnProperty.call(row, col) ? row[col] : "";
+              if (options.editable) {
+                return `<td><input class="cell-edit-input" data-row-id="${escapeAttr(rowId)}" data-col="${escapeAttr(col)}" value="${escapeAttr(value)}"></td>`;
+              }
+              return `<td title="${escapeAttr(value)}">${escapeHtml(value)}</td>`;
+            }).join("");
+            return `<tr data-row-id="${escapeAttr(rowId)}">${selectCell}${cells}</tr>`;
+          }).join("")
         : `<tr><td>${filtered.length === 0 && rows.length > 0 ? "Нет строк, соответствующих фильтру." : "Нет строк для предпросмотра"}</td></tr>`;
       const from = filtered.length ? start + 1 : 0;
       const to = Math.min(start + pageSize, filtered.length);
       if (pageInfo) pageInfo.textContent = `${from} to ${to} of ${filtered.length}`;
       if (pageLabel) pageLabel.textContent = `Page ${page} of ${totalPages}`;
+      const selectAll = thead?.querySelector("input[data-select-all]");
+      if (selectAll) selectAll.checked = rows.length > 0 && rows.every((row) => selectedIds.has(getRowId(row)));
+    }
+
+    if (options.editable || options.selectable) {
+      tbody.addEventListener("input", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement) || !target.classList.contains("cell-edit-input")) return;
+        const rowId = target.dataset.rowId;
+        const col = target.dataset.col;
+        const row = rows.find((r) => getRowId(r) === rowId);
+        if (!row) return;
+        row[col] = target.value;
+        options.onCellEdit?.(row, col, target.value);
+      });
+      tbody.addEventListener("change", (event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLInputElement) || target.dataset.rowSelect === undefined) return;
+        const rowId = target.dataset.rowSelect;
+        if (target.checked) selectedIds.add(rowId);
+        else selectedIds.delete(rowId);
+        const selectAll = thead?.querySelector("input[data-select-all]");
+        if (selectAll) selectAll.checked = rows.length > 0 && rows.every((row) => selectedIds.has(getRowId(row)));
+      });
     }
 
     if (pagerRow) {
@@ -682,6 +701,7 @@
       sortKey = null;
       sortDir = 1;
       page = 1;
+      selectedIds.clear();
       Object.keys(filters).forEach((key) => delete filters[key]);
       renderHeader();
       render();
@@ -694,7 +714,12 @@
       render();
     }
 
-    return { setData, patchRow };
+    function getExportData() {
+      const source = selectedIds.size > 0 ? rows.filter((row) => selectedIds.has(getRowId(row))) : rows;
+      return { columns, rows: source };
+    }
+
+    return { setData, patchRow, getExportData };
   }
 
   function smartCellValue(value) {
@@ -763,6 +788,86 @@
     });
   }
 
+  const GRAY_ZONE_PAGE_SIZE = 8;
+  let grayZonePage = 1;
+
+  function renderGrayZone(app, grayZone) {
+    const card = app.querySelector("#gray-zone-card");
+    const list = app.querySelector("#gray-zone-list");
+    const pagerRow = app.querySelector("#gray-zone-pager");
+    if (!card || !list) return;
+
+    const zone = grayZone || {};
+    const ops = Array.isArray(zone.operations) ? zone.operations : [];
+    if (!ops.length) {
+      card.hidden = true;
+      return;
+    }
+    card.hidden = false;
+
+    const totalCount = Number(zone.totalCount) || ops.length;
+    const noiseCount = Number(zone.noiseClusterCount) || 0;
+    const unknownCount = Number(zone.unknownTypeCount) || 0;
+    setText(app, "#gray-zone-count", `Всего: ${formatInteger(totalCount)} · шумовой кластер: ${formatInteger(noiseCount)} · тип не распознан: ${formatInteger(unknownCount)}`);
+
+    if (pagerRow) pagerRow.hidden = false;
+    grayZonePage = 1;
+    renderGrayZonePage(app, ops);
+  }
+
+  function renderGrayZonePage(app, ops) {
+    const list = app.querySelector("#gray-zone-list");
+    if (!list) return;
+    const totalPages = Math.max(1, Math.ceil(ops.length / GRAY_ZONE_PAGE_SIZE));
+    if (grayZonePage > totalPages) grayZonePage = totalPages;
+    const start = (grayZonePage - 1) * GRAY_ZONE_PAGE_SIZE;
+    const visible = ops.slice(start, start + GRAY_ZONE_PAGE_SIZE);
+
+    list.innerHTML = visible.map(renderGrayZoneItem).join("");
+
+    const from = ops.length ? start + 1 : 0;
+    const to = Math.min(start + GRAY_ZONE_PAGE_SIZE, ops.length);
+    setText(app, "#gray-zone-page-info", `${from} to ${to} of ${ops.length}`);
+    setText(app, "#gray-zone-page-label", `Page ${grayZonePage} of ${totalPages}`);
+  }
+
+  function renderGrayZoneItem(op) {
+    const reasons = Array.isArray(op.reasons) ? op.reasons : [];
+    const reasonBadges = reasons.map((r) => `<span class="tag">${escapeHtml(r)}</span>`).join("");
+    const docs = Array.isArray(op.recommendedDocuments) ? op.recommendedDocuments.slice(0, 3) : [];
+    const docsText = docs.length ? `Документы к запросу: ${docs.map(escapeHtml).join("; ")}` : "";
+    return `
+      <li class="info-list-item gray">
+        <span class="info-list-dot gray"></span>
+        <div class="info-list-body">
+          <div class="info-list-title-row">
+            <b>${escapeHtml(op.amount)} · ${escapeHtml(op.date)} · ${escapeHtml(op.counterparty)}</b>
+            <span class="muted-inline">ИНН ${escapeHtml(op.counterpartyInn || "не определен")}</span>
+          </div>
+          <p class="info-list-desc">Тип: ${escapeHtml(op.operationType)} · кластер ${escapeHtml(op.clusterId)}</p>
+          <div class="conclusion-card-tags">${reasonBadges}</div>
+          ${docsText ? `<p class="info-list-desc">${docsText}</p>` : ""}
+        </div>
+      </li>`;
+  }
+
+  function initGrayZonePager(app) {
+    const pagerRow = app.querySelector("#gray-zone-pager");
+    if (!pagerRow) return;
+    pagerRow.querySelectorAll(".pager-btn[data-pager]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const ops = (window.financeDashboardApp?.data?.grayZone?.operations) || [];
+        if (!ops.length) return;
+        const totalPages = Math.max(1, Math.ceil(ops.length / GRAY_ZONE_PAGE_SIZE));
+        if (btn.dataset.pager === "first") grayZonePage = 1;
+        if (btn.dataset.pager === "prev") grayZonePage = Math.max(1, grayZonePage - 1);
+        if (btn.dataset.pager === "next") grayZonePage = Math.min(totalPages, grayZonePage + 1);
+        if (btn.dataset.pager === "last") grayZonePage = totalPages;
+        renderGrayZonePage(app, ops);
+      });
+    });
+  }
+
   function renderRecommendationCard(op) {
     return `
       <article class="recommendation-card" data-rec-idx="${escapeAttr(op.idx)}">
@@ -818,7 +923,7 @@
     });
   }
 
-  function patchRecommendation(app, data, idx, text) {
+  function patchRecommendation(app, data, idx, text, options) {
     if (!data) return;
     let changed = false;
     (data.transactions || []).forEach((row) => {
@@ -838,7 +943,11 @@
     const viewEl = app.querySelector(`[data-recommendation-view="${cssEscape(idx)}"]`);
     if (viewEl) viewEl.innerHTML = `<b>Рекомендация:</b> ${escapeHtml(text)}`;
 
-    mainFinalTableController?.patchRow?.("idx", idx, { recommendation: text });
+    if (!options?.skipFinalTable) mainFinalTableController?.patchRow?.("idx", idx, { recommendation: text });
+    if (!options?.skipRecommendationCards) {
+      const textarea = app.querySelector(`#rec-input-${cssEscape(idx)}`);
+      if (textarea instanceof HTMLTextAreaElement && textarea.value !== text) textarea.value = text;
+    }
     window.financeDashboardApp?.refreshSmartTable?.();
   }
 
@@ -1021,6 +1130,7 @@
   function renderLegalOperationCard(op) {
     const basisList = (op.legalBasis || []).map((b) => `<li>${escapeHtml(b)}</li>`).join("");
     const courtList = (op.courtBasis || []).map((b) => `<li>${escapeHtml(b)}</li>`).join("");
+    const docsList = (op.documentsNeeded || []).map((d) => `<li>${escapeHtml(d)}</li>`).join("");
     return `
       <article class="conclusion-card" data-op-idx="${escapeAttr(op.idx)}">
         <div class="conclusion-card-head">
@@ -1031,6 +1141,7 @@
           <span class="badge ${escapeClass(op.riskClass)}">${escapeHtml(op.riskLabel)}</span>
         </div>
         <div class="conclusion-card-tags">
+          ${op.operationType ? `<span class="tag">${escapeHtml(op.operationType)}</span>` : ""}
           <span class="tag">${escapeHtml(op.transactionCategory)}</span>
           <span class="tag">${escapeHtml(op.legalRoute)}</span>
           <span class="tag">${escapeHtml(op.connectionStrength)}</span>
@@ -1046,6 +1157,7 @@
         <p class="conclusion-field conclusion-recommendation" data-recommendation-view="${escapeAttr(op.idx)}"><b>Рекомендация:</b> ${escapeHtml(op.recommendation)}</p>
         ${op.verificationGoal ? `<p class="conclusion-field"><b>Цель проверки:</b> ${escapeHtml(op.verificationGoal)}</p>` : ""}
         ${op.riskChangeConditions ? `<p class="conclusion-field"><b>Что изменит риск:</b> ${escapeHtml(op.riskChangeConditions)}</p>` : ""}
+        ${docsList ? `<div class="conclusion-field"><b>Документы к запросу:</b><ul>${docsList}</ul></div>` : ""}
       </article>`;
   }
 
@@ -1330,6 +1442,111 @@
   function csvCell(value) {
     const text = String(value ?? "").replaceAll('"', '""');
     return /[;"\n]/.test(text) ? `"${text}"` : text;
+  }
+
+  function tableToCsvString(columns, rows) {
+    const header = (columns || []).join(";");
+    const body = (rows || []).map((row) => (columns || []).map((col) => csvCell(row[col])).join(";")).join("\n");
+    return "﻿" + header + "\n" + body;
+  }
+
+  // Минимальный ZIP-писатель (метод store, без сжатия) — чтобы «Скачать все
+  // таблицы» собирался прямо в браузере из ТЕКУЩЕГО состояния таблиц (с
+  // правками и выбранными строками сотрудника), а не отдавал статичный файл
+  // со снапшотом на момент запуска анализа.
+  function crc32Bytes(bytes) {
+    let crc = 0xFFFFFFFF;
+    for (let i = 0; i < bytes.length; i++) {
+      crc ^= bytes[i];
+      for (let j = 0; j < 8; j++) {
+        crc = (crc & 1) ? (crc >>> 1) ^ 0xEDB88320 : (crc >>> 1);
+      }
+    }
+    return (crc ^ 0xFFFFFFFF) >>> 0;
+  }
+
+  function createZipBlob(files) {
+    const encoder = new TextEncoder();
+    const chunks = [];
+    const centralRecords = [];
+    let offset = 0;
+
+    files.forEach((file) => {
+      const nameBytes = encoder.encode(file.name);
+      const contentBytes = encoder.encode(file.content);
+      const crc = crc32Bytes(contentBytes);
+      const size = contentBytes.length;
+
+      const localHeader = new DataView(new ArrayBuffer(30));
+      localHeader.setUint32(0, 0x04034b50, true);
+      localHeader.setUint16(4, 20, true);
+      localHeader.setUint16(6, 0, true);
+      localHeader.setUint16(8, 0, true);
+      localHeader.setUint16(10, 0, true);
+      localHeader.setUint16(12, 0, true);
+      localHeader.setUint32(14, crc, true);
+      localHeader.setUint32(18, size, true);
+      localHeader.setUint32(22, size, true);
+      localHeader.setUint16(26, nameBytes.length, true);
+      localHeader.setUint16(28, 0, true);
+
+      chunks.push(new Uint8Array(localHeader.buffer));
+      chunks.push(nameBytes);
+      chunks.push(contentBytes);
+
+      centralRecords.push({ nameBytes, crc, size, offset });
+      offset += 30 + nameBytes.length + size;
+    });
+
+    const centralStart = offset;
+    centralRecords.forEach((rec) => {
+      const central = new DataView(new ArrayBuffer(46));
+      central.setUint32(0, 0x02014b50, true);
+      central.setUint16(4, 20, true);
+      central.setUint16(6, 20, true);
+      central.setUint16(8, 0, true);
+      central.setUint16(10, 0, true);
+      central.setUint16(12, 0, true);
+      central.setUint16(14, 0, true);
+      central.setUint32(16, rec.crc, true);
+      central.setUint32(20, rec.size, true);
+      central.setUint32(24, rec.size, true);
+      central.setUint16(28, rec.nameBytes.length, true);
+      central.setUint16(30, 0, true);
+      central.setUint16(32, 0, true);
+      central.setUint16(34, 0, true);
+      central.setUint16(36, 0, true);
+      central.setUint32(38, 0, true);
+      central.setUint32(42, rec.offset, true);
+      chunks.push(new Uint8Array(central.buffer));
+      chunks.push(rec.nameBytes);
+      offset += 46 + rec.nameBytes.length;
+    });
+    const centralSize = offset - centralStart;
+
+    const end = new DataView(new ArrayBuffer(22));
+    end.setUint32(0, 0x06054b50, true);
+    end.setUint16(4, 0, true);
+    end.setUint16(6, 0, true);
+    end.setUint16(8, centralRecords.length, true);
+    end.setUint16(10, centralRecords.length, true);
+    end.setUint32(12, centralSize, true);
+    end.setUint32(16, centralStart, true);
+    end.setUint16(20, 0, true);
+    chunks.push(new Uint8Array(end.buffer));
+
+    return new Blob(chunks, { type: "application/zip" });
+  }
+
+  function downloadBlob(filename, blob) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
   }
 
   function niceMax(value) {

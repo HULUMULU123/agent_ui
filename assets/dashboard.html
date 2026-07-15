@@ -58,25 +58,11 @@
         </div>
       </section>
 
-      <section class="card analysis-preview-card" id="analysis-preview-card" hidden>
-        <div class="card-header-row">
-          <h2>Шапка загруженной выписки</h2>
-          <span class="analysis-preview-status" id="analysis-preview-status">Анализ завершен</span>
-        </div>
-        <p class="muted-text">Предпросмотр первых строк файла появляется только после запуска анализа. Полная статистика и результат агента доступны на странице «Статистика».</p>
-        <div id="analysis-preview-table-wrap" class="analysis-preview-table-wrap">
-          <table id="analysis-preview-table" class="soft-table preview-table">
-            <thead></thead>
-            <tbody><tr><td>Нет данных для отображения.</td></tr></tbody>
-          </table>
-        </div>
-      </section>
-
       <section class="card main-table-card" id="main-original-table-card" hidden>
         <div class="card-header-row">
           <h2>Исходная выписка</h2>
         </div>
-        <p class="muted-text">Первые строки файла, как он был загружен, до нормализации и работы агента. Клик по заголовку колонки сортирует таблицу.</p>
+        <p class="muted-text">Основные поля из загруженного файла, как он был получен, до работы агента. Клик по заголовку колонки сортирует таблицу.</p>
         <div class="table-scroll dynamic-table-wrap">
           <table id="main-original-table" class="soft-table preview-table dynamic-table">
             <thead></thead>
@@ -101,7 +87,7 @@
             <button class="tiny-btn" type="button" id="download-all-zip">Скачать все таблицы (ZIP)</button>
           </div>
         </div>
-        <p class="muted-text">Результат агента по всей выписке: прямой анализ LLM, перенос объяснений на похожие операции и повторный анализ операций с низкой уверенностью. Клик по заголовку колонки сортирует таблицу.</p>
+        <p class="muted-text">Результат агента по всей выписке. Любое поле можно отредактировать, галочкой слева — выбрать строки для выгрузки (если ничего не выбрано, скачаются все). Правки сразу попадают в скачиваемые файлы.</p>
         <div class="table-scroll dynamic-table-wrap">
           <table id="main-final-table" class="soft-table preview-table dynamic-table">
             <thead></thead>
@@ -130,6 +116,23 @@
           <button class="pager-btn" type="button" data-pager="first">|&lt;</button>
           <button class="pager-btn" type="button" data-pager="prev">‹</button>
           <span id="recommendations-page-label">Page 1 of 1</span>
+          <button class="pager-btn" type="button" data-pager="next">›</button>
+          <button class="pager-btn" type="button" data-pager="last">&gt;|</button>
+        </div>
+      </section>
+
+      <section class="card gray-zone-card" id="gray-zone-card" hidden>
+        <div class="card-header-row">
+          <h2>Серая зона: без чёткого типа или кластера</h2>
+          <span id="gray-zone-count" class="muted-inline"></span>
+        </div>
+        <p class="muted-text">Операции, которые классификатор не смог однозначно определить (неопознанный тип платежа), или которые выпали из кластеризации (шумовой кластер) — агент не строит по ним рекомендацию автоматически, нужна ручная проверка.</p>
+        <ul class="info-list gray-zone-list" id="gray-zone-list"></ul>
+        <div class="pager-row" id="gray-zone-pager">
+          <span id="gray-zone-page-info">0 to 0 of 0</span>
+          <button class="pager-btn" type="button" data-pager="first">|&lt;</button>
+          <button class="pager-btn" type="button" data-pager="prev">‹</button>
+          <span id="gray-zone-page-label">Page 1 of 1</span>
           <button class="pager-btn" type="button" data-pager="next">›</button>
           <button class="pager-btn" type="button" data-pager="last">&gt;|</button>
         </div>

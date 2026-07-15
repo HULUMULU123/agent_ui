@@ -27,6 +27,7 @@ class BankOperation(TypedDict, total=False):
     court_filing_date: Optional[str]
     collect_all_graph_connections: Optional[Dict[str, Any]]
     collect_all_graph_connections_description: Optional[str]
+    operation_type: Optional[str]
 
 
 class ToolRequest(TypedDict, total=False):

@@ -14,6 +14,7 @@ from .dashboard import build_payload_from_agent_outputs
 from .fallback import deterministic_operation_analysis
 from .io import load_counterparty_enrichment, read_statement_table
 from .models import risk_db as default_risk_db
+from .operation_classifier import classify_and_verify_operations
 from .output_normalizer import normalize_agent_output
 from .preprocessing import prepare_transactions
 from .progress_utils import ProgressReporter, StatusCallback
@@ -26,6 +27,18 @@ logger = logging.getLogger("bankruptcy_agent.pipeline")
 
 ROOT = Path(__file__).resolve().parent.parent
 EXPORTS_DIR = ROOT / "assets" / "dashboard_exports"
+
+
+def _try_get_shared_llm() -> Any | None:
+    """Переиспользует тот же LLM-клиент, что и основной анализатор риска (models.py),
+    для этапа классификации типа операции. Если реальный LLM не настроен -- возвращает
+    None, и классификация типа переходит на детерминированный fallback (см.
+    operation_classifier.classify_and_verify_operations)."""
+    try:
+        from .models import build_runtime
+        return build_runtime().llm
+    except Exception:
+        return None
 
 
 def _make_analyze_fn(use_real_agent: bool, reporter: ProgressReporter | None = None):
@@ -73,6 +86,7 @@ def run_agent_pipeline(
     steps = [
         "Чтение файла",
         "Подготовка колонок и адаптивной LLM-выборки",
+        "Определение типа операции",
         "Анализ представителей кластеров",
         "Распространение результатов на всю выписку",
         "Повторный анализ операций с низкой уверенностью",
@@ -83,9 +97,10 @@ def run_agent_pipeline(
     step_bounds = {
         "Чтение файла": (0, 3),
         "Подготовка колонок и адаптивной LLM-выборки": (3, 8),
-        "Анализ представителей кластеров": (8, 55),
-        "Распространение результатов на всю выписку": (55, 62),
-        "Повторный анализ операций с низкой уверенностью": (62, 85),
+        "Определение типа операции": (8, 20),
+        "Анализ представителей кластеров": (20, 60),
+        "Распространение результатов на всю выписку": (60, 67),
+        "Повторный анализ операций с низкой уверенностью": (67, 85),
         "Обновление памяти риска контрагентов": (85, 90),
         "Сбор таблиц, графиков и KPI": (90, 96),
         "Экспорт таблиц пайплайна в ZIP": (96, 100),
@@ -139,6 +154,30 @@ def run_agent_pipeline(
             )
             print(f"[agent] Адаптивная выборка: {len(df_unique)} операций из {len(prepared)} в LLM ({len(cluster_strategy)} кластеров)", flush=True)
             reporter.report(f"Выборка готова: {len(df_unique)} операций из {len(prepared)} войдут в анализ ({len(cluster_strategy)} кластеров)", end_pct / 100)
+
+        elif step == "Определение типа операции":
+            assert prepared is not None and df_unique is not None
+            classifier_llm = _try_get_shared_llm() if use_real_agent else None
+            classification = classify_and_verify_operations(
+                prepared, use_real_agent=use_real_agent, llm=classifier_llm,
+                reporter=reporter.sub(start_pct, end_pct),
+            )
+            classification_cols = [
+                "operation_type", "requested_documents", "classifier_operation_type",
+                "analyzer_decision", "analyzer_correction_reason", "operation_type_need_review",
+            ]
+            if not classification.empty:
+                to_merge = classification[classification_cols].copy()
+                to_merge.index = to_merge.index.astype(str)
+                to_merge.index.name = "_classifier_idx"
+                prepared["_classifier_idx"] = prepared["idx"].astype(str)
+                prepared = prepared.merge(to_merge, left_on="_classifier_idx", right_index=True, how="left")
+                prepared = prepared.drop(columns=["_classifier_idx"])
+                df_unique["_classifier_idx"] = df_unique["idx"].astype(str)
+                df_unique = df_unique.merge(to_merge, left_on="_classifier_idx", right_index=True, how="left")
+                df_unique = df_unique.drop(columns=["_classifier_idx"])
+                n_corrected = int((classification["analyzer_decision"] == "correct").sum())
+                print(f"[agent] Тип операции определен: {len(classification)} операций, исправлений анализатора: {n_corrected}", flush=True)
 
         elif step == "Анализ представителей кластеров":
             assert df_unique is not None

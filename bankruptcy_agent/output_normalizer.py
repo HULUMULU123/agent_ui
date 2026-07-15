@@ -64,7 +64,10 @@ def normalize_single_analysis_row(row: dict[str, Any]) -> dict[str, Any]:
     inn = clean_text(row.get("counterparty_inn") or row.get("inn") or row.get("credit_inn") or row.get("debit_inn") or "")
     category = clean_text(row.get("transaction_category") or classify_transaction_category(clean_text(row.get("purpose")), amount))
     rec_summary = recommendation_summary(recommendation_obj, row, category, risk_level_value)
-    docs = documents_from_output(recommendation_obj, challenge, category, risk_level_value)
+    docs = documents_from_output(
+        recommendation_obj, challenge, category, risk_level_value,
+        classifier_documents=row.get("requested_documents"),
+    )
     challenge.setdefault("documents_needed", docs)
     verification_goal = clean_text(recommendation_obj.get("verification_goal")) if isinstance(recommendation_obj, dict) else ""
     risk_change_conditions = clean_text(recommendation_obj.get("risk_change_conditions")) if isinstance(recommendation_obj, dict) else ""
@@ -97,6 +100,13 @@ def normalize_single_analysis_row(row: dict[str, Any]) -> dict[str, Any]:
         "recommendation_verification_goal": verification_goal,
         "recommendation_risk_change_conditions": risk_change_conditions,
         "recommended_documents": docs,
+        # Тип операции от отдельного классификатора (operation_classifier.py) + результат
+        # его собственной проверки/коррекции -- см. дальше "серую зону" и рекомендации.
+        "operation_type": clean_text(row.get("operation_type") or ""),
+        "classifier_operation_type": clean_text(row.get("classifier_operation_type") or ""),
+        "operation_type_analyzer_decision": clean_text(row.get("analyzer_decision") or ""),
+        "operation_type_analyzer_reason": clean_text(row.get("analyzer_correction_reason") or ""),
+        "operation_type_need_review": bool(row.get("operation_type_need_review", False)),
         "used_tools": parse_maybe_json(row.get("used_tools", [])),
         "status": clean_text(row.get("status", "success")),
         "error": clean_text(row.get("error", "")),

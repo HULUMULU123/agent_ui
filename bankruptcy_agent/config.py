@@ -38,6 +38,10 @@ AGENT_SOURCE_FIELDS = [
     "court_filing_date",
     "collect_all_graph_connections",
     "collect_all_graph_connections.description",
+    # Предварительный тип операции от отдельного классификатора (см.
+    # operation_classifier.py), уже прошедший собственную проверку/коррекцию.
+    # Это подсказка для transaction_category, а не готовое решение -- см. ANALYZER_PROMPT.
+    "operation_type",
 ]
 
 # Выходной контракт из AnalyzerClusterResult.operations.
