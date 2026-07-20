@@ -38,17 +38,18 @@ AGENT_SOURCE_FIELDS = [
     "court_filing_date",
     "collect_all_graph_connections",
     "collect_all_graph_connections.description",
-    # Предварительный тип операции от отдельного классификатора (см.
-    # operation_classifier.py), уже прошедший собственную проверку/коррекцию.
-    # Это подсказка для transaction_category, а не готовое решение -- см. ANALYZER_PROMPT.
+    # Тип операции от классификатора (см. operation_classifier.py): определён по
+    # выборке кластера и распространён на весь кластер. Анализатору запрещено его
+    # менять -- см. ANALYZER_PROMPT, ШАГ 1a.
     "operation_type",
+    "requested_documents",
 ]
 
 # Выходной контракт из AnalyzerClusterResult.operations.
 AGENT_OUTPUT_FIELDS = [
     "cluster_id",
     "idx",
-    "transaction_category",
+    "operation_type",
     "amount",
     "counterparty_category",
     "connections_basis",
@@ -107,6 +108,14 @@ CLUSTER_HOMOGENEITY_THRESHOLD = float(CLUSTER_HOMOGENEITY_THRESHOLD) if CLUSTER_
 MAX_ISOLATED_SHARE = float(os.getenv("MAX_ISOLATED_SHARE", "0.30"))
 MAX_REPRESENTATIVES_PER_CLUSTER = int(os.getenv("MAX_REPRESENTATIVES_PER_CLUSTER", "8"))
 MAX_OPERATIONS_PER_LLM_BATCH = int(os.getenv("MAX_OPERATIONS_PER_LLM_BATCH", "20"))
+
+# Классификатор типа операции: сколько операций сэмплируется из каждого кластера
+# для классификации (тип затем распространяется на весь кластер по сходству purpose).
+CLASSIFIER_SAMPLE_PER_CLUSTER = int(os.getenv("CLASSIFIER_SAMPLE_PER_CLUSTER", "20"))
+
+# Анализировать ли разреженные кластеры агентом. False -> разреженные кластеры
+# полностью исключаются из LLM-анализа (операции помечаются на ручную проверку).
+ANALYZE_SPARSE_CLUSTERS = os.getenv("ANALYZE_SPARSE_CLUSTERS", "true").strip().lower() not in ("false", "0", "no")
 
 # Сколько поисковых запросов каждого типа реально выполняется за один вызов
 # search_practice_and_normative (нормативка / судебная практика).

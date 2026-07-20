@@ -28,6 +28,7 @@ class BankOperation(TypedDict, total=False):
     collect_all_graph_connections: Optional[Dict[str, Any]]
     collect_all_graph_connections_description: Optional[str]
     operation_type: Optional[str]
+    requested_documents: Optional[List[str]]
 
 
 class ToolRequest(TypedDict, total=False):

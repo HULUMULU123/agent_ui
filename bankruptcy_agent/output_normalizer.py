@@ -62,7 +62,10 @@ def normalize_single_analysis_row(row: dict[str, Any]) -> dict[str, Any]:
     amount = to_float(row.get("amount"), 0.0)
     counterparty_name = clean_text(row.get("counterparty") or row.get("credit_name") or row.get("debit_name") or row.get("counterparty_category") or "Контрагент не определен")
     inn = clean_text(row.get("counterparty_inn") or row.get("inn") or row.get("credit_inn") or row.get("debit_inn") or "")
-    category = clean_text(row.get("transaction_category") or classify_transaction_category(clean_text(row.get("purpose")), amount))
+    # operation_type -- единственное поле типа операции, которое возвращает анализатор
+    # (см. ANALYZER_PROMPT, ШАГ 1a: анализатор обязан вернуть его без изменений).
+    # transaction_category сохранён как fallback для старых записей/deterministic-режима.
+    category = clean_text(row.get("operation_type") or row.get("transaction_category") or classify_transaction_category(clean_text(row.get("purpose")), amount))
     rec_summary = recommendation_summary(recommendation_obj, row, category, risk_level_value)
     docs = documents_from_output(
         recommendation_obj, challenge, category, risk_level_value,
@@ -100,12 +103,14 @@ def normalize_single_analysis_row(row: dict[str, Any]) -> dict[str, Any]:
         "recommendation_verification_goal": verification_goal,
         "recommendation_risk_change_conditions": risk_change_conditions,
         "recommended_documents": docs,
-        # Тип операции от отдельного классификатора (operation_classifier.py) + результат
-        # его собственной проверки/коррекции -- см. дальше "серую зону" и рекомендации.
+        # Тип операции от классификатора (operation_classifier.py): "classified" --
+        # определён LLM/fallback-ом напрямую по этой операции (была в выборке
+        # кластера), "propagated" -- унаследован от похожей по purpose операции
+        # своего кластера. Анализатору менять operation_type запрещено (см. дальше
+        # "серую зону" и рекомендации).
         "operation_type": clean_text(row.get("operation_type") or ""),
-        "classifier_operation_type": clean_text(row.get("classifier_operation_type") or ""),
-        "operation_type_analyzer_decision": clean_text(row.get("analyzer_decision") or ""),
-        "operation_type_analyzer_reason": clean_text(row.get("analyzer_correction_reason") or ""),
+        "operation_type_source": clean_text(row.get("operation_type_source") or ""),
+        "operation_type_similarity": to_float(row.get("operation_type_similarity"), 1.0),
         "operation_type_need_review": bool(row.get("operation_type_need_review", False)),
         "used_tools": parse_maybe_json(row.get("used_tools", [])),
         "status": clean_text(row.get("status", "success")),

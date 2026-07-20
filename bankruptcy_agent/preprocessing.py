@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from typing import Any
 
@@ -10,6 +11,71 @@ import pandas as pd
 from .clustering_strategy import apply_cluster_strategy
 from .config import COURT_FILING_DATE_DEFAULT, MIN_ABS_AMOUNT_FOR_LLM
 from .similarity import fit_similarity_space
+
+logger = logging.getLogger("bankruptcy_agent.preprocessing")
+
+# Операция допускается к анализу, только если заполнены дата, сумма, назначение
+# платежа и обе стороны операции. Сторона считается известной, если заполнена
+# хотя бы одна колонка пары (например, есть debit_inn ЛИБО debit_name).
+# Перенесено из agent_v3_adaptive_clusters_1.ipynb, "Проверка операций перед анализом".
+VALIDATION_COLUMN_GROUPS: list[list[str]] = [
+    ["date"],
+    ["debit_inn", "debit_name"],
+    ["credit_inn", "credit_name"],
+    ["amount"],
+    ["purpose"],
+]
+
+
+def is_blank_series(series: pd.Series) -> pd.Series:
+    """Возвращает булеву маску пустых значений колонки (NaN/NaT, пустая строка,
+    строка из одних пробелов)."""
+    as_str = series.astype(str).str.strip()
+    return (
+        series.isna()
+        | as_str.eq("")
+        | as_str.str.lower().isin({"nan", "nat", "none", "<na>"})
+    )
+
+
+def validate_operations(
+    df: pd.DataFrame,
+    groups: list[list[str]] = VALIDATION_COLUMN_GROUPS,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Делит операции на пригодные для анализа и отбракованные.
+
+    Возвращает (valid_df, rejected_df). В rejected_df добавляется колонка
+    `rejection_reason` со списком незаполненных групп колонок.
+    """
+    result = df.copy()
+    reasons = pd.Series([[] for _ in range(len(result))], index=result.index)
+
+    for group in groups:
+        present = [col for col in group if col in result.columns]
+        if not present:
+            logger.warning("Проверка операций: ни одна из колонок %s не найдена, группа пропущена.", group)
+            continue
+
+        group_blank = pd.Series(True, index=result.index)
+        for col in present:
+            group_blank &= is_blank_series(result[col])
+
+        if group_blank.any():
+            label = " / ".join(group)
+            reasons[group_blank] = reasons[group_blank].apply(lambda acc, l=label: acc + [l])
+            logger.info("Проверка операций: пустая группа %s у %d операций.", label, int(group_blank.sum()))
+
+    rejected_mask = reasons.apply(bool)
+    rejected_df = result[rejected_mask].copy()
+    if not rejected_df.empty:
+        rejected_df["rejection_reason"] = reasons[rejected_mask].apply("; ".join)
+
+    valid_df = result[~rejected_mask].copy().reset_index(drop=True)
+    logger.info(
+        "Проверка операций завершена: пригодных=%d, исключено=%d из %d.",
+        len(valid_df), len(rejected_df), len(result),
+    )
+    return valid_df, rejected_df
 
 
 def make_stable_operation_id(df: pd.DataFrame) -> pd.Series:
@@ -163,17 +229,32 @@ def prepare_transactions(
     court_filing_date: str = COURT_FILING_DATE_DEFAULT,
     min_abs_amount_for_llm: float = MIN_ABS_AMOUNT_FOR_LLM,
     enrichment_df: pd.DataFrame | None = None,
-) -> tuple[pd.DataFrame, pd.DataFrame, dict[Any, dict[str, Any]], pd.DataFrame, list[str]]:
+) -> tuple[pd.DataFrame, pd.DataFrame, dict[Any, dict[str, Any]], pd.DataFrame, list[str], pd.DataFrame]:
     """Подготовительный слой из тетрадки: типы, interval, idx, адаптивная LLM-выборка.
 
-    Возвращает (prepared, df_unique, cluster_strategy, diagnostics_df, warnings).
-    `prepared` — вся выписка с техническими полями (используется для
+    Возвращает (prepared, df_unique, cluster_strategy, diagnostics_df, warnings,
+    rejected_df). `prepared` — вся выписка с техническими полями (используется для
     распространения анализа на 100% операций). `df_unique` — представители
     компактных кластеров + разреженные кластеры целиком (адаптивная стратегия
     плотности, см. clustering_strategy.py), это то, что реально уходит в LLM.
+    `rejected_df` — операции, отбракованные validate_operations (не заполнены
+    обязательные поля), в анализ не попадают.
     """
     result = normalize_columns(df)
     warnings: list[str] = []
+
+    result, rejected_df = validate_operations(result)
+    if not rejected_df.empty:
+        warnings.append(
+            f"Исключено из анализа {len(rejected_df)} операций: не заполнены обязательные поля "
+            "(дата, сумма, назначение платежа или обе стороны операции)."
+        )
+    if result.empty:
+        raise ValueError(
+            "После проверки не осталось ни одной операции, пригодной для анализа. "
+            "Проверьте заполненность колонок: дата, сумма, назначение платежа, "
+            "стороны операции (ИНН/наименование)."
+        )
 
     for col in ["date", "amount", "purpose", "debit_inn", "credit_inn"]:
         if col not in result.columns:
@@ -251,7 +332,7 @@ def prepare_transactions(
         if "selection_mode" not in df_unique.columns:
             df_unique["selection_mode"] = "full_sparse"
 
-    return result, df_unique, cluster_strategy, diagnostics_df, warnings
+    return result, df_unique, cluster_strategy, diagnostics_df, warnings, rejected_df
 
 
 def days_to_period(series: pd.Series) -> pd.Series:

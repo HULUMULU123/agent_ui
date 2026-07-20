@@ -1,4 +1,5 @@
 :root {
+  color-scheme: light;
   --teal: #0f9b8f;
   --teal-dark: #078779;
   --mint: #55bea4;
@@ -1332,10 +1333,32 @@ table {
     max-height: 184px !important;
   }
 }
-@media (max-width: 980px) {
+/* Fixed18: планшетные диагонали (портрет ~768-834px и часть ландшафта до 1024px) --
+   на 2 колонках заголовки KPI-карточек (например "ОПЕРАЦИЙ ПРОАНАЛИЗИРОВАНО")
+   упирались в forced single-line + ellipsis и обрезались. Полная ширина карточки
+   в одну колонку снимает обрезание без отказа от ellipsis-защиты на более узких
+   картах. */
+@media (max-width: 1024px) {
+  .agent-summary-grid,
+  .stats-card-grid,
   .two-col-grid {
     grid-template-columns: 1fr !important;
-    grid-auto-rows: 382px !important;
+    grid-auto-rows: auto !important;
+  }
+  .agent-summary-card {
+    height: auto !important;
+    min-height: 172px !important;
+    max-height: none !important;
+  }
+  .big-chart-card,
+  .small-chart-card,
+  .mini-chart-card,
+  .donut-card,
+  .metric-card,
+  .signals-card {
+    height: auto !important;
+    min-height: 300px !important;
+    max-height: none !important;
   }
   .dashboard-body {
     padding-left: 22px !important;

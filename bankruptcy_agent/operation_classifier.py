@@ -1,20 +1,22 @@
 """Классификатор типа операции + требуемых документов (перенесено из
-operation_classifier_notebook (1).ipynb).
+agent_v3_adaptive_clusters_1.ipynb, секция "Определение типа операции: классификатор
+(llm_helper) + распространение по кластеру").
 
-Двухэтапный процесс, как в тетрадке:
-1. Классификатор — по closed-каталогу subject_id/action_id/flags определяет ПРЕДВАРИТЕЛЬНЫЙ
-   тип операции (resolve_operation_type) и документы (resolve_documents).
-2. Анализатор — независимо сверяет предложенный тип с назначением платежа и, если считает,
-   что не сходится, исправляет на более подходящий subject_id/action_id из того же каталога.
-   Документы пересчитываются под финальный (проверенный) тип.
+Экономичная классификация с распространением, а не двухэтапная проверка:
+1. Классификатор — по closed-каталогу subject_id/action_id/flags определяет тип операции
+   (resolve_operation_type) и документы (resolve_documents) только для ВЫБОРКИ из каждого
+   кластера (см. CLASSIFIER_SAMPLE_PER_CLUSTER).
+2. Распространение — каждая несэмплированная операция кластера получает тип наиболее
+   похожей по purpose классифицированной операции своего кластера (символьные n-граммы,
+   косинусное сходство). Отдельного модуля-верификатора нет: итоговую проверку типа
+   выполняет основной анализатор риска, которому менять operation_type запрещено
+   (см. prompts.ANALYZER_PROMPT, ШАГ 1a) — тип передаётся как есть.
 
-При реальном LLM (use_real_agent=True, runtime.llm настроен) оба этапа выполняются вызовами
-модели по промптам CLASSIFIER_SYSTEM_PROMPT / ANALYZER_VERIFICATION_SYSTEM_PROMPT — так же,
-как в тетрадке (GigaChat), но через тот же runtime.llm, что и основной анализатор риска.
-Без реального LLM используется детерминированный fallback: classify_operation_deterministic
-(сопоставление с triggers каталога) + verify_operation_deterministic (более строгая проверка
-по границам слова — например, "поставщику" не подтверждает "goods_supply" по префиксу
-"поставщ", это ровно тот класс ошибок, от которого предостерегает промпт классификатора).
+При реальном LLM (use_real_agent=True, runtime.llm_helper настроен) классификация выборки
+выполняется вызовами модели по промпту CLASSIFIER_SYSTEM_PROMPT — так же, как в тетрадке,
+но через тот же runtime.llm_helper, что использует и правовой модуль поиска практики. Без
+реального LLM используется детерминированный fallback: classify_operation_deterministic
+(сопоставление с triggers каталога по границам слова).
 """
 
 from __future__ import annotations
@@ -573,48 +575,7 @@ def classify_operation_deterministic(purpose: str, direction: str = "outflow") -
     return subject_id, action_id
 
 
-def verify_operation_deterministic(purpose: str, subject_id: str, action_id: str | None) -> tuple[str, str | None, str, str]:
-    """Второй, более строгий проход без LLM: подтверждает subject_id только если хотя бы
-    один его триггер входит в purpose как отдельное слово/словосочетание (границы слова), а
-    не как часть другого слова. Не находит подтверждения -- пересчитывает subject_id той же
-    строгой проверкой по всем кандидатам; если результат отличается, это coррекция.
-    Возвращает (final_subject_id, final_action_id, decision, reason)."""
-    if subject_id in (None, "unknown"):
-        return subject_id or "unknown", action_id, "confirm", ""
-
-    text = (purpose or "").lower()
-    triggers = SUBJECT_TRIGGERS.get(subject_id, [])
-    if any(_word_boundary_match(t, text) for t in triggers):
-        return subject_id, action_id, "confirm", ""
-
-    best: tuple[int, str] | None = None
-    for candidate_subject_id, candidate_triggers in SUBJECT_TRIGGERS.items():
-        if candidate_subject_id == "unknown":
-            continue
-        for trigger in candidate_triggers:
-            if _word_boundary_match(trigger, text):
-                if best is None or len(trigger) > best[0]:
-                    best = (len(trigger), candidate_subject_id)
-
-    if best is None:
-        if subject_id != "unknown":
-            return "unknown", None, "correct", (
-                f"триггеры '{subject_id}' не подтвердились как отдельное слово в назначении"
-            )
-        return subject_id, action_id, "confirm", ""
-
-    corrected_subject_id = best[1]
-    if corrected_subject_id == subject_id:
-        return subject_id, action_id, "confirm", ""
-
-    allowed = CATALOG_ACTIONS.get(corrected_subject_id) or []
-    corrected_action_id = allowed[0] if allowed else None
-    return corrected_subject_id, corrected_action_id, "correct", (
-        f"строгая проверка границ слова указывает на '{corrected_subject_id}', а не '{subject_id}'"
-    )
-
-
-# ---- Раздел 6/9: промпты для реального LLM (тот же runtime.llm, что у основного анализатора риска) ----
+# ---- Раздел 6: промпт классификатора для реального LLM (llm_helper) ----
 
 CLASSIFIER_PROMPT_TEMPLATE = '''Ты — модуль классификации банковских операций для проверки в процедуре банкротства и работе с проблемными активами.
 
@@ -792,86 +753,8 @@ JSON:
 5. Нет документов и полей вне схемы. JSON валиден.
 '''
 
-ANALYZER_VERIFICATION_PROMPT_TEMPLATE = '''Ты — модуль финальной проверки классификации банковских операций для процедуры банкротства.
-
-ЗАДАЧА
-Классификатор уже определил по каждой операции предполагаемый тип: subject_id, action_id и
-человекочитаемый operation_type. Твоя задача — независимо сверить этот предполагаемый тип с
-текстом назначения платежа (purpose) и решить:
-- "confirm" — предложенный тип соответствует смыслу назначения, менять не нужно;
-- "correct" — предложенный тип НЕ соответствует смыслу назначения; выбери другой subject_id
-  (и при необходимости action_id) из каталога, который подходит лучше, либо "unknown", если ни
-  один конкретный тип не подтверждается текстом.
-
-Ты не классифицируешь с нуля без основания — используй те же строгие правила, что и
-классификатор:
-- подтверждением типа может быть только конкретное предметное слово (что покупается/
-  оплачивается) или НАЗВАННЫЙ тип договора в purpose — не логика "что обычно означает такой
-  платёж";
-- голый "договор"/"счёт"/"расчёты"/"перечисление" без конкретики — unknown, а не поставка;
-- слово, описывающее РОЛЬ стороны ("поставщику", "арендодателю") — не то же самое, что предмет
-  сделки; роль без предмета — unknown;
-- упоминание финансового документа (счёт-фактура, УПД, накладная, акт) само по себе не признак
-  конкретного предмета — эти документы сопровождают любые операции;
-- не занижай тип, если признак выражен синонимом, а не дословно как в triggers каталога;
-- не завышай общий термин ("оплата услуг", "оплата работ") до узкого типа без конкретики.
-
-Если предложенный классификатором тип уже соответствует одному из этих правил и подтверждается
-текстом purpose — confirm. Если предложенный тип явно основан на слове роли, родовом договоре
-или документе без предмета (нарушение правил выше) — correct.
-
-ВХОД
-JSON:
-{{
-  "operations": [
-    {{
-      "idx": 0,
-      "purpose": "",
-      "direction": "outflow",
-      "proposed_subject_id": "",
-      "proposed_action_id": null,
-      "proposed_operation_type": ""
-    }}
-  ]
-}}
-- operations — батч, техническая группировка, каждый idx проверяется независимо от соседних.
-
-КАТАЛОГ (тот же закрытый каталог, что использовал классификатор)
-Разрешено использовать ТОЛЬКО id из него для final_subject_id/final_action_id.
-
-{catalog_json}
-
-ФОРМАТ ВЫВОДА
-Строго валидный JSON, ничего вне JSON:
-{{
-  "operations": [
-    {{
-      "idx": 0,
-      "decision": "confirm",
-      "final_subject_id": "",
-      "final_action_id": null,
-      "correction_reason": ""
-    }}
-  ]
-}}
-- Если decision="confirm": final_subject_id/final_action_id ДОЛЖНЫ совпадать с proposed_*,
-  correction_reason — пустая строка "".
-- Если decision="correct": final_subject_id обязателен и должен явно ОТЛИЧАТЬСЯ от
-  proposed_subject_id (иначе это не коррекция, а confirm); correction_reason — краткое
-  обоснование со ссылкой на конкретное слово из purpose.
-
-САМОПРОВЕРКА
-1. Все входные idx возвращены ровно один раз, лишних нет.
-2. final_subject_id и final_action_id — только из CATALOG (action_id может быть null).
-3. final_action_id входит в allowed_actions выбранного final_subject_id.
-4. Если decision="correct", final_subject_id ≠ proposed_subject_id, и ты можешь явно назвать
-   слово из purpose, на основании которого сделана коррекция.
-5. Нет полей вне схемы. JSON валиден.
-'''
-
 CATALOG_JSON = json.dumps(CATALOG, ensure_ascii=False, indent=2)
 CLASSIFIER_SYSTEM_PROMPT = CLASSIFIER_PROMPT_TEMPLATE.format(catalog_json=CATALOG_JSON)
-ANALYZER_VERIFICATION_SYSTEM_PROMPT = ANALYZER_VERIFICATION_PROMPT_TEMPLATE.format(catalog_json=CATALOG_JSON)
 
 
 # ---- Вызов реального LLM (тот же контракт, что notebook_agent._invoke_llm_json) ----
@@ -910,18 +793,6 @@ def _classify_batch_with_llm(llm: Any, batch: list[dict[str, Any]]) -> list[dict
     return ops
 
 
-def _verify_batch_with_llm(llm: Any, batch: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """batch: [{idx, purpose, direction, proposed_subject_id, proposed_action_id, proposed_operation_type}]."""
-    payload = {"operations": batch}
-    parsed = _invoke_llm_json(llm, system=ANALYZER_VERIFICATION_SYSTEM_PROMPT, human=json.dumps(payload, ensure_ascii=False))
-    ops = parsed.get("operations", [])
-    returned_idx = {op.get("idx") for op in ops}
-    expected_idx = {op["idx"] for op in batch}
-    if returned_idx != expected_idx:
-        raise ValueError(f"Анализатор вернул не все idx: ожидались {expected_idx}, получены {returned_idx}")
-    return ops
-
-
 # ---- Единая точка входа для pipeline.py ----
 
 def _to_catalog_direction(direction_ru: Any) -> str:
@@ -932,128 +803,169 @@ def _to_catalog_direction(direction_ru: Any) -> str:
     return "outflow"
 
 
-def classify_and_verify_operations(
+CLASSIFIER_SAMPLE_PER_CLUSTER = 20
+
+
+def _classify_sample_batch(batch_df: pd.DataFrame, *, can_use_llm: bool, llm: Any) -> list[dict[str, Any]]:
+    """Классифицирует один батч выборки (LLM или детерминированный fallback).
+    Возвращает [{idx, operation_type, requested_documents, operation_type_need_review}]."""
+    payload = [
+        {"idx": row["idx"], "purpose": str(row["purpose"]), "direction": row["_direction_catalog"]}
+        for _, row in batch_df.iterrows()
+    ]
+    raw_ops: list[dict[str, Any]] | None = None
+    if can_use_llm:
+        try:
+            raw_ops = _classify_batch_with_llm(llm, payload)
+        except Exception:
+            raw_ops = None  # реальный LLM недоступен/невалиден -- откат на детерминированный путь
+
+    by_idx = {str(op.get("idx")): op for op in raw_ops} if raw_ops is not None else {}
+
+    classified = []
+    for p in payload:
+        if p["idx"] in by_idx:
+            raw_op = by_idx[p["idx"]]
+            subject_id, action_id, flags = raw_op.get("subject_id"), raw_op.get("action_id"), raw_op.get("flags")
+        else:
+            subject_id, action_id = classify_operation_deterministic(p["purpose"], p["direction"])
+            flags = []
+        validated = validate_op(subject_id, action_id, flags)
+        built = build_operation_row(validated["subject_id"], validated["action_id"], validated["flags"], p["purpose"], p["direction"])
+        classified.append({
+            "idx": p["idx"],
+            "operation_type": built["operation_type"],
+            "requested_documents": built["requested_documents"],
+            "operation_type_need_review": validated["need_review"],
+        })
+    return classified
+
+
+def _propagate_types_in_cluster(group: pd.DataFrame, classified: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+    """Распространяет тип на несэмплированные операции кластера по сходству purpose
+    (символьные n-граммы 3-5, косинусное сходство) -- см. cell 39 тетрадки agent_v3."""
+    from sklearn.feature_extraction.text import TfidfVectorizer
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    sampled_idx = [i for i in group["idx"] if i in classified]
+    rows: list[dict[str, Any]] = []
+
+    if not sampled_idx:
+        # Кластер без классифицированной выборки не должен возникать при
+        # sample_per_cluster >= 1, но на всякий случай -- безопасный unknown.
+        for i in group["idx"]:
+            rows.append({
+                "idx": i, "operation_type": "Неопознанный платёж", "requested_documents": [],
+                "operation_type_source": "propagated", "operation_type_similarity": 0.0,
+                "operation_type_need_review": True,
+            })
+        return rows
+
+    sampled_purposes = (
+        group.set_index("idx").loc[sampled_idx, "purpose"].fillna("").astype(str).str.lower().tolist()
+    )
+    vectorizer = TfidfVectorizer(analyzer="char_wb", ngram_range=(3, 5), min_df=1, use_idf=False)
+    try:
+        sampled_matrix = vectorizer.fit_transform(sampled_purposes)
+        can_match = True
+    except ValueError:
+        can_match = False  # все назначения пустые -- сопоставлять не по чему
+
+    for _, op in group.iterrows():
+        i = op["idx"]
+        if i in classified:
+            rows.append({
+                "idx": i, **classified[i],
+                "operation_type_source": "classified", "operation_type_similarity": 1.0,
+            })
+            continue
+        if can_match:
+            vec = vectorizer.transform([str(op["purpose"] or "").lower()])
+            sims = cosine_similarity(vec, sampled_matrix)[0]
+            best = int(sims.argmax())
+            best_sim = float(sims[best])
+        else:
+            best, best_sim = 0, 0.0
+        source = classified[sampled_idx[best]]
+        rows.append({
+            "idx": i,
+            "operation_type": source["operation_type"],
+            "requested_documents": source["requested_documents"],
+            "operation_type_source": "propagated",
+            "operation_type_similarity": round(best_sim, 4),
+            "operation_type_need_review": source["operation_type_need_review"],
+        })
+    return rows
+
+
+def classify_and_propagate_operations(
     df: pd.DataFrame,
     *,
     use_real_agent: bool = False,
     llm: Any | None = None,
     reporter: ProgressReporter | None = None,
+    sample_per_cluster: int = CLASSIFIER_SAMPLE_PER_CLUSTER,
     max_ops_per_batch: int = MAX_OPS_PER_BATCH,
+    random_state: int = 42,
 ) -> pd.DataFrame:
-    """Классифицирует тип операции + определяет документы для КАЖДОЙ строки df (включая
-    шумовой кластер -1, который основной adaptive-clustering пропускает целиком -- именно
-    поэтому классификация типа операции выполняется отдельно и раньше, на полном df, а не
-    на выборке представителей кластеров).
+    """Определяет тип операции + документы для КАЖДОЙ строки df (включая шумовой
+    кластер -1, который основной adaptive-clustering пропускает целиком).
 
-    df должен содержать колонки idx, purpose, direction (в конвенции проекта:
+    Экономичная классификация с распространением (см. cell 30/39 тетрадки
+    agent_v3_adaptive_clusters_1.ipynb): из каждого кластера сэмплируется до
+    `sample_per_cluster` операций, только они классифицируются модулем классификации
+    (llm_helper); остальные операции кластера получают тип наиболее похожей по purpose
+    классифицированной операции (символьные n-граммы, косинусное сходство). Отдельного
+    модуля-верификатора больше нет -- итоговую проверку типа выполняет основной
+    анализатор (см. ANALYZER_PROMPT, ШАГ 1a): тип передаётся как есть, менять его
+    анализатору запрещено.
+
+    df должен содержать колонки idx, cluster, purpose, direction (в конвенции проекта:
     "убытие"/"прибытие"). Возвращает DataFrame с индексом = df["idx"] и колонками:
-    operation_type, requested_documents (list[str]), classifier_operation_type
-    (предложение до проверки), analyzer_decision ("confirm"/"correct"),
-    analyzer_correction_reason, operation_type_need_review (bool).
+    operation_type, requested_documents (list[str]), operation_type_source
+    ("classified"/"propagated"), operation_type_similarity, operation_type_need_review.
     """
+    empty_columns = [
+        "idx", "operation_type", "requested_documents",
+        "operation_type_source", "operation_type_similarity", "operation_type_need_review",
+    ]
     if df.empty:
-        return pd.DataFrame(columns=[
-            "idx", "operation_type", "requested_documents", "classifier_operation_type",
-            "analyzer_decision", "analyzer_correction_reason", "operation_type_need_review",
-        ]).set_index("idx")
+        return pd.DataFrame(columns=empty_columns).set_index("idx")
 
-    rows = df[["idx", "purpose", "direction"]].copy()
+    rows = df[["idx", "cluster", "purpose", "direction"]].copy()
     rows["idx"] = rows["idx"].astype(str)
     rows["_direction_catalog"] = rows["direction"].apply(_to_catalog_direction)
 
     can_use_llm = use_real_agent and llm is not None
-    total = len(rows)
-    results: list[dict[str, Any]] = []
 
-    batches = [rows.iloc[start:start + max_ops_per_batch] for start in range(0, total, max_ops_per_batch)]
+    sample_parts = [
+        group.sample(n=min(sample_per_cluster, len(group)), random_state=random_state)
+        for _, group in rows.groupby("cluster", sort=False)
+    ]
+    sample_df = pd.concat(sample_parts) if sample_parts else rows.iloc[0:0]
+
+    if reporter is not None:
+        reporter.note(f"Определяю тип операции: выборка {len(sample_df)} из {len(rows)} операций")
+
+    classified: dict[str, dict[str, Any]] = {}
+    batches = [sample_df.iloc[start:start + max_ops_per_batch] for start in range(0, len(sample_df), max_ops_per_batch)]
     for batch_i, batch_df in enumerate(batches, start=1):
         if reporter is not None:
-            reporter.note(f"Определяю тип операции: батч {batch_i} из {len(batches)}")
+            reporter.note(f"Классификация типа операции: батч {batch_i} из {len(batches)}")
+        for c in _classify_sample_batch(batch_df, can_use_llm=can_use_llm, llm=llm):
+            classified[c["idx"]] = {k: v for k, v in c.items() if k != "idx"}
 
-        classified: list[dict[str, Any]] = []
-        if can_use_llm:
-            payload = [
-                {"idx": row["idx"], "purpose": str(row["purpose"]), "direction": row["_direction_catalog"]}
-                for _, row in batch_df.iterrows()
-            ]
-            try:
-                raw_ops = _classify_batch_with_llm(llm, payload)
-                by_idx = {str(op.get("idx")): op for op in raw_ops}
-                for _, row in batch_df.iterrows():
-                    raw_op = by_idx.get(row["idx"]) or {"subject_id": "unknown", "action_id": None, "flags": []}
-                    validated = validate_op(raw_op.get("subject_id"), raw_op.get("action_id"), raw_op.get("flags"))
-                    classified.append({**validated, "idx": row["idx"], "purpose": row["purpose"], "direction": row["_direction_catalog"]})
-            except Exception:
-                can_use_llm = False  # реальный LLM недоступен/невалиден -- откат на детерминированный путь для всех батчей
+    type_rows: list[dict[str, Any]] = []
+    for _, group in rows.groupby("cluster", sort=False):
+        type_rows.extend(_propagate_types_in_cluster(group, classified))
 
-        if not classified:
-            for _, row in batch_df.iterrows():
-                subject_id, action_id = classify_operation_deterministic(str(row["purpose"]), row["_direction_catalog"])
-                validated = validate_op(subject_id, action_id, [])
-                classified.append({**validated, "idx": row["idx"], "purpose": row["purpose"], "direction": row["_direction_catalog"]})
-
-        built = [
-            {**build_operation_row(c["subject_id"], c["action_id"], c["flags"], c["purpose"], c["direction"]),
-             "idx": c["idx"], "purpose": c["purpose"], "direction": c["direction"],
-             "subject_id": c["subject_id"], "action_id": c["action_id"], "need_review": c["need_review"]}
-            for c in classified
-        ]
-
-        if can_use_llm:
-            verify_payload = [
-                {"idx": b["idx"], "purpose": b["purpose"], "direction": b["direction"],
-                 "proposed_subject_id": b["subject_id"], "proposed_action_id": b["action_id"],
-                 "proposed_operation_type": b["operation_type"]}
-                for b in built
-            ]
-            try:
-                verification_ops = _verify_batch_with_llm(llm, verify_payload)
-                verification_by_idx = {str(op.get("idx")): op for op in verification_ops}
-            except Exception:
-                verification_by_idx = {}
-        else:
-            verification_by_idx = {}
-
-        for b in built:
-            if can_use_llm and b["idx"] in verification_by_idx:
-                v_op = verification_by_idx[b["idx"]]
-                decision = v_op.get("decision", "confirm")
-                final_subject_id = v_op.get("final_subject_id") or b["subject_id"]
-                final_action_id = v_op.get("final_action_id")
-                reason = v_op.get("correction_reason") or ""
-            else:
-                final_subject_id, final_action_id, decision, reason = verify_operation_deterministic(
-                    str(b["purpose"]), b["subject_id"], b["action_id"]
-                )
-
-            if decision == "correct":
-                final_row = build_operation_row(final_subject_id, final_action_id, [], str(b["purpose"]), b["direction"])
-                results.append({
-                    "idx": b["idx"],
-                    "operation_type": final_row["operation_type"],
-                    "requested_documents": final_row["requested_documents"],
-                    "classifier_operation_type": b["operation_type"],
-                    "analyzer_decision": "correct",
-                    "analyzer_correction_reason": reason,
-                    "operation_type_need_review": True,
-                })
-            else:
-                results.append({
-                    "idx": b["idx"],
-                    "operation_type": b["operation_type"],
-                    "requested_documents": b["requested_documents"],
-                    "classifier_operation_type": b["operation_type"],
-                    "analyzer_decision": "confirm",
-                    "analyzer_correction_reason": "",
-                    "operation_type_need_review": b["need_review"],
-                })
-
-    result_df = pd.DataFrame(results).set_index("idx", drop=False)
+    result_df = pd.DataFrame(type_rows).set_index("idx", drop=False)
     if reporter is not None:
-        n_corrected = int((result_df["analyzer_decision"] == "correct").sum())
-        n_unknown = int((result_df["operation_type"].str.startswith("Неопознанный")).sum())
+        n_classified = int((result_df["operation_type_source"] == "classified").sum())
+        n_propagated = int((result_df["operation_type_source"] == "propagated").sum())
+        n_unknown = int(result_df["operation_type"].str.startswith("Неопознанный").sum())
         reporter.note(
             f"Тип операции определен для {len(result_df)} операций "
-            f"(исправлений анализатора: {n_corrected}, неопознанных: {n_unknown})"
+            f"(классифицировано: {n_classified}, распространено: {n_propagated}, неопознанных: {n_unknown})"
         )
     return result_df

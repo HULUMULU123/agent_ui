@@ -35,6 +35,81 @@ def _invoke_llm_json(llm: Any, *, system: str, human: str) -> dict[str, Any]:
     return extract_json_from_llm_response(response)
 
 
+def _content_text(message: Any) -> str:
+    if message is None:
+        return ""
+    if isinstance(message, str):
+        return message
+    if isinstance(message, dict):
+        return json.dumps(message, ensure_ascii=False, default=str)
+    return str(getattr(message, "content", message))
+
+
+def _looks_truncated(text: str) -> bool:
+    """True, если ответ похож на ОБРЫВ: JSON начался, но скобки не закрылись
+    (часть операций не сгенерирована), либо ответ пуст. Полный, но синтаксически
+    битый JSON (все скобки закрыты) обрывом не считается -- такой чинит llm_helper."""
+    t = (text or "").strip()
+    if t.startswith("```"):
+        t = t.strip("`").strip()
+    if not t:
+        return True
+    start = next((i for i, ch in enumerate(t) if ch in "{["), None)
+    if start is None:
+        return False
+    depth = 0
+    in_str = False
+    esc = False
+    for ch in t[start:]:
+        if in_str:
+            if esc:
+                esc = False
+            elif ch == "\\":
+                esc = True
+            elif ch == '"':
+                in_str = False
+        elif ch == '"':
+            in_str = True
+        elif ch in "{[":
+            depth += 1
+        elif ch in "}]":
+            depth -= 1
+    return depth > 0
+
+
+JSON_REPAIR_MAX_CHARS = 16000
+
+JSON_REPAIR_SYSTEM_PROMPT = (
+    "Ты — модуль восстановления структуры JSON. На вход даётся текст, который ДОЛЖЕН быть "
+    'JSON-объектом вида {"operations": [ ... ]}, но повреждён: лишний текст вокруг, markdown-'
+    "ограждения, оборванный конец, висячие запятые, неэкранированные кавычки и т.п. "
+    "Верни СТРОГО валидный JSON без markdown и без каких-либо пояснений, приведённый к схеме "
+    '{"operations": [ <объекты операций> ]}. Сохрани СОДЕРЖИМОЕ операций как есть, включая поле '
+    "idx у каждой операции. Ничего не придумывай и не добавляй новых операций; если часть текста "
+    "оборвана, восстанови структуру только уже присутствующих операций. Ответ — только JSON."
+)
+
+
+def _repair_json_with_llm_helper(runtime: AgentRuntime, broken_text: str, expected_idx: list[Any]) -> dict[str, Any]:
+    """Чинит структуру уже полученного ответа анализатора дешёвым llm_helper --
+    сам анализ не перезапускается, чинится только JSON. Возвращает {} при неудаче."""
+    if runtime.llm_helper is None:
+        logger.error("Восстановление JSON: llm_helper не настроен в bankruptcy_agent/models.py")
+        return {}
+    idx_list = [str(i) for i in expected_idx if i is not None]
+    human = (
+        f"Ожидаются операции с такими idx ({len(idx_list)} шт.): {idx_list}.\n"
+        "Ниже повреждённый ответ, который нужно привести к валидному JSON:\n\n"
+        + (broken_text or "")[:JSON_REPAIR_MAX_CHARS]
+    )
+    try:
+        parsed = _invoke_llm_json(runtime.llm_helper, system=JSON_REPAIR_SYSTEM_PROMPT, human=human)
+    except Exception as exc:
+        logger.error("Восстановление JSON: ошибка вызова llm_helper: %s", exc)
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
 def _orchestrator_system_prompt() -> str:
     return ORCHSTRATOR_SYSTEM_PROMPT + """
 
@@ -43,11 +118,16 @@ def _orchestrator_system_prompt() -> str:
 Ты можешь вызывать tools только если они реально уменьшают неопределенность.
 
 Если нужен нормативный или судебный поиск, вызывай search_practice_and_normative.
-В этот tool нужно передавать:
-- search_task: словесную постановку задачи;
-- hypotheses: проверяемые гипотезы;
-- operation_context: структурированный контекст операции;
-- tool_reason: зачем нужен tool.
+Передавай в него:
+- search_task: словесную постановку ПРАВОВОЙ задачи (ситуация, гипотеза, каких
+  фактов не хватает) развёрнутым текстом;
+- hypotheses: до двух проверяемых гипотез;
+- operation_context: структурированный КОНТЕКСТ операций (факты и признаки).
+Не передавай в этот tool тип операции / operation_type / название категории как
+отдельный аргумент или как весь search_task — тип не является поисковым ключом,
+поиск строится по фактам и правовому вопросу. Если тип важен, он уже есть в
+operation_context.transaction_category.
+search_practice_and_normative можно вызвать максимум 2 раза на один кластер.
 
 Если нужна история риска контрагента, вызывай get_conterparty_risk.
 Не вызывай get_conterparty_risk без валидного ИНН или наименования контрагента.
@@ -67,9 +147,9 @@ def _analyzer_system_prompt() -> str:
 Ты — финальный анализатор. Ты работаешь с КЛАСТЕРОМ операций.
 
 Ты получаешь от оркестратора:
-- OrchestratorClusterResult — всю информацию, которую оркестратор смог собрать по кластеру;
-- tool_results — результаты вызовов инструментов по кластеру;
-- operations — сами операции кластера.
+- OrchestratorClusterResult — всю информацию, которую оркестратор смог собрать по кластеру
+- tool_results — результаты вызовов инструментов по кластеру
+- operations — сами операции кластера
 
 Ты должен:
 1. Проанализировать КАЖДУЮ операцию кластера.
@@ -82,50 +162,19 @@ def _analyzer_system_prompt() -> str:
 Ты НЕ строишь новые гипотезы — ты используешь гипотезы оркестратора.
 Ты принимаешь решение на основе того, что передал оркестратор.
 
-Формат ответа:
+В текстовых значениях итогового JSON запрещены английские слова; ключи JSON остаются
+на английском.
+
+Формат ответа — обертка кластера, где каждый элемент operations строго соответствует
+объекту операции из раздела «ФОРМАТ ОТВЕТА» выше:
 {
   "cluster_summary": "",
-  "operations": [
-    {
-      "idx": "",
-      "transaction_category": "",
-      "amount": 0,
-      "counterparty_category": "",
-      "connections_basis": {
-        "strongest_connection": "",
-        "connection_set_summary": "",
-        "connection_strength": "",
-        "influence_on_risk": "",
-        "limitation": ""
-      },
-      "challenge_criteria": {
-        "potential_route": "",
-        "criteria_matched": [],
-        "criteria_missing": [],
-        "documents_needed": [],
-        "challenge_readiness": ""
-      },
-      "risk_level": 0,
-      "legal_qualification": "",
-      "legal_basis": [],
-      "court_basis": [],
-      "decision_argumentation": "",
-      "risk_explanation": "",
-      "recommendation": {
-        "summary": "",
-        "documents_to_request": [],
-        "verification_goal": "",
-        "risk_change_conditions": ""
-      },
-      "used_tools": []
-    }
-  ],
+  "operations": [ ...объекты операций в формате из раздела «ФОРМАТ ОТВЕТА»... ],
   "overall_risk_assessment": "",
   "used_tools": []
 }
 
 Количество объектов в operations должно строго совпадать с количеством операций в кластере.
-Верни СТРОГО JSON без markdown.
 """
 
 
@@ -207,6 +256,69 @@ def call_analyzer(
     return _invoke_llm_json(runtime.llm, system=_analyzer_system_prompt(), human=human)
 
 
+def _extract_operations(result: dict[str, Any]) -> list[dict[str, Any]]:
+    ops = result.get("operations", [])
+    return [op for op in ops if isinstance(op, dict)] if isinstance(ops, list) else []
+
+
+def call_analyzer_with_guard(
+    runtime: AgentRuntime,
+    *,
+    operations: list[dict[str, Any]],
+    orchestrator_result: dict[str, Any],
+    tool_results: list[dict[str, Any]],
+    warnings: list[str],
+    tool_limit_reached: bool,
+    unexecuted_requested_tools: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Вызывает анализатора и контролирует структуру ответа (см. cell 23 тетрадки
+    agent_v3_adaptive_clusters_1.ipynb, _invoke_with_operations_guard):
+
+    - ОБРЫВ ответа (часть операций не сгенерирована) -> ОДИН повторный вызов
+      анализатора, потому что потерянный контент llm_helper восстановить не может;
+    - битая только структура (контент на месте, но JSON невалиден) -> ремонт дешёвым
+      llm_helper, без повтора анализатора (дороже перезапускать весь кластер).
+    """
+    expected_set = {str(op.get("idx")) for op in operations if op.get("idx") is not None}
+    kwargs = dict(
+        operations=operations, orchestrator_result=orchestrator_result, tool_results=tool_results,
+        warnings=warnings, tool_limit_reached=tool_limit_reached,
+        unexecuted_requested_tools=unexecuted_requested_tools,
+    )
+
+    result = call_analyzer(runtime, **kwargs)
+    ops = _extract_operations(result)
+    missing = expected_set - {str(op.get("idx")) for op in ops if op.get("idx") is not None}
+    if ops and not missing:
+        return result
+
+    raw_text = str(result.get("_raw_response") or "")
+
+    if _looks_truncated(raw_text):
+        logger.warning("Анализатор: ответ оборван, повторный вызов (1 раз), кластер операций=%d", len(operations))
+        result2 = call_analyzer(runtime, **kwargs)
+        ops2 = _extract_operations(result2)
+        if len(ops2) >= len(ops):
+            result, ops = result2, ops2
+            missing = expected_set - {str(op.get("idx")) for op in ops if op.get("idx") is not None}
+        if ops and not missing:
+            return result
+
+    if not ops:
+        logger.warning("Анализатор: разобрано 0 операций, восстановление структуры через llm_helper")
+        repaired = _repair_json_with_llm_helper(runtime, raw_text, [op.get("idx") for op in operations])
+        repaired_ops = _extract_operations(repaired)
+        if repaired_ops:
+            repaired.setdefault("operations", repaired_ops)
+            logger.info("Анализатор: структура JSON восстановлена llm_helper, операций: %d", len(repaired_ops))
+            return repaired
+
+    if missing and ops:
+        logger.warning("Анализатор: разобрано %d операций из %d ожидаемых, не хватает idx=%s",
+                       len(ops), len(expected_set), sorted(missing)[:10])
+    return result
+
+
 def run_cluster_agent(
     runtime: AgentRuntime,
     *,
@@ -267,7 +379,7 @@ def run_cluster_agent(
     if reporter is not None:
         reporter.note(f"Кластер {cluster_id}: формирую итоговую оценку риска по операциям")
 
-    analyzer_result = call_analyzer(
+    analyzer_result = call_analyzer_with_guard(
         runtime,
         operations=operations,
         orchestrator_result=orchestrator_result,

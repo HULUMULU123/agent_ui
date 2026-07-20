@@ -45,6 +45,7 @@ DATA_JSON = json.dumps(DATA, ensure_ascii=False).replace("</", "<\\/")
 
 HEAD = f"""
 <meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="color-scheme" content="light" />
 <script>window.__FINANCE_DASHBOARD_DATA__ = {DATA_JSON};</script>
 <script>{JS}</script>
 """

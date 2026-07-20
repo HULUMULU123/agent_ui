@@ -14,7 +14,7 @@ from .dashboard import build_payload_from_agent_outputs
 from .fallback import deterministic_operation_analysis
 from .io import load_counterparty_enrichment, read_statement_table
 from .models import risk_db as default_risk_db
-from .operation_classifier import classify_and_verify_operations
+from .operation_classifier import classify_and_propagate_operations
 from .output_normalizer import normalize_agent_output
 from .preprocessing import prepare_transactions
 from .progress_utils import ProgressReporter, StatusCallback
@@ -29,14 +29,16 @@ ROOT = Path(__file__).resolve().parent.parent
 EXPORTS_DIR = ROOT / "assets" / "dashboard_exports"
 
 
-def _try_get_shared_llm() -> Any | None:
-    """Переиспользует тот же LLM-клиент, что и основной анализатор риска (models.py),
-    для этапа классификации типа операции. Если реальный LLM не настроен -- возвращает
-    None, и классификация типа переходит на детерминированный fallback (см.
-    operation_classifier.classify_and_verify_operations)."""
+def _try_get_classifier_llm() -> Any | None:
+    """LLM для этапа классификации типа операции -- в тетрадке это `llm_helper`
+    (та же модель, что использует правовой модуль поиска практики), а не основной
+    `llm` оркестратора/анализатора. Если runtime не настроен, возвращает None, и
+    классификация переходит на детерминированный fallback (см.
+    operation_classifier.classify_and_propagate_operations)."""
     try:
         from .models import build_runtime
-        return build_runtime().llm
+        runtime = build_runtime()
+        return runtime.llm_helper or runtime.llm
     except Exception:
         return None
 
@@ -122,6 +124,7 @@ def run_agent_pipeline(
     df_unique: pd.DataFrame | None = None
     cluster_strategy: dict[Any, dict[str, Any]] = {}
     diagnostics_df: pd.DataFrame | None = None
+    rejected_df: pd.DataFrame = pd.DataFrame()
     analyzed_representatives: pd.DataFrame | None = None
     full_analysis: pd.DataFrame | None = None
     analysis: pd.DataFrame | None = None
@@ -149,22 +152,24 @@ def run_agent_pipeline(
 
         elif step == "Подготовка колонок и адаптивной LLM-выборки":
             assert df is not None
-            prepared, df_unique, cluster_strategy, diagnostics_df, warnings = prepare_transactions(
+            prepared, df_unique, cluster_strategy, diagnostics_df, warnings, rejected_df = prepare_transactions(
                 df, court_filing_date=court_filing_date, enrichment_df=enrichment_df
             )
+            if not rejected_df.empty:
+                reporter.note(f"Исключено из анализа {len(rejected_df)} операций с незаполненными обязательными полями")
             print(f"[agent] Адаптивная выборка: {len(df_unique)} операций из {len(prepared)} в LLM ({len(cluster_strategy)} кластеров)", flush=True)
             reporter.report(f"Выборка готова: {len(df_unique)} операций из {len(prepared)} войдут в анализ ({len(cluster_strategy)} кластеров)", end_pct / 100)
 
         elif step == "Определение типа операции":
             assert prepared is not None and df_unique is not None
-            classifier_llm = _try_get_shared_llm() if use_real_agent else None
-            classification = classify_and_verify_operations(
+            classifier_llm = _try_get_classifier_llm() if use_real_agent else None
+            classification = classify_and_propagate_operations(
                 prepared, use_real_agent=use_real_agent, llm=classifier_llm,
                 reporter=reporter.sub(start_pct, end_pct),
             )
             classification_cols = [
-                "operation_type", "requested_documents", "classifier_operation_type",
-                "analyzer_decision", "analyzer_correction_reason", "operation_type_need_review",
+                "operation_type", "requested_documents",
+                "operation_type_source", "operation_type_similarity", "operation_type_need_review",
             ]
             if not classification.empty:
                 to_merge = classification[classification_cols].copy()
@@ -176,8 +181,9 @@ def run_agent_pipeline(
                 df_unique["_classifier_idx"] = df_unique["idx"].astype(str)
                 df_unique = df_unique.merge(to_merge, left_on="_classifier_idx", right_index=True, how="left")
                 df_unique = df_unique.drop(columns=["_classifier_idx"])
-                n_corrected = int((classification["analyzer_decision"] == "correct").sum())
-                print(f"[agent] Тип операции определен: {len(classification)} операций, исправлений анализатора: {n_corrected}", flush=True)
+                n_classified = int((classification["operation_type_source"] == "classified").sum())
+                n_propagated = int((classification["operation_type_source"] == "propagated").sum())
+                print(f"[agent] Тип операции определен: {len(classification)} операций (классифицировано: {n_classified}, распространено: {n_propagated})", flush=True)
 
         elif step == "Анализ представителей кластеров":
             assert df_unique is not None
@@ -218,7 +224,7 @@ def run_agent_pipeline(
 
     assert df is not None and prepared is not None and df_unique is not None and analysis is not None and full_analysis is not None
 
-    export_tables = _build_export_tables(df, df_unique, diagnostics_df, analyzed_representatives, full_analysis)
+    export_tables = _build_export_tables(df, df_unique, diagnostics_df, analyzed_representatives, full_analysis, rejected_df)
     exports_zip_path = _write_export_zip(export_tables, path.stem)
 
     payload = build_payload_from_agent_outputs(
@@ -253,6 +259,7 @@ def _build_export_tables(
     diagnostics_df: pd.DataFrame | None,
     analyzed_representatives: pd.DataFrame | None,
     full_analysis: pd.DataFrame,
+    rejected_df: pd.DataFrame | None = None,
 ) -> dict[str, pd.DataFrame]:
     """Таблицы-артефакты пайплайна, аналогичные экспортам тетрадки."""
     tables: dict[str, pd.DataFrame] = {
@@ -261,6 +268,8 @@ def _build_export_tables(
     }
     if diagnostics_df is not None and not diagnostics_df.empty:
         tables["диагностика_кластеров"] = diagnostics_df
+    if rejected_df is not None and not rejected_df.empty:
+        tables["отбракованные_операции"] = rejected_df
     if analyzed_representatives is not None and not analyzed_representatives.empty:
         tables["анализ_представителей"] = analyzed_representatives
     tables["полная_выписка_с_анализом"] = full_analysis

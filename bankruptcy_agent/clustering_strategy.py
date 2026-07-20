@@ -7,6 +7,7 @@ from typing import Any
 import pandas as pd
 
 from .config import (
+    ANALYZE_SPARSE_CLUSTERS,
     CLUSTER_HOMOGENEITY_THRESHOLD,
     MAX_ISOLATED_SHARE,
     MAX_OPERATIONS_PER_LLM_BATCH,
@@ -33,6 +34,7 @@ def apply_cluster_strategy(
     max_isolated_share: float = MAX_ISOLATED_SHARE,
     max_representatives_per_cluster: int = MAX_REPRESENTATIVES_PER_CLUSTER,
     max_operations_per_llm_batch: int = MAX_OPERATIONS_PER_LLM_BATCH,
+    analyze_sparse_clusters: bool = ANALYZE_SPARSE_CLUSTERS,
 ) -> tuple[pd.DataFrame, dict[Any, dict[str, Any]], pd.DataFrame]:
     """Строит LLM-выборку по адаптивной стратегии плотности кластеров.
 
@@ -63,6 +65,21 @@ def apply_cluster_strategy(
             max_isolated_share=max_isolated_share,
         )
 
+        if mode == "sparse" and not analyze_sparse_clusters:
+            # Разреженный кластер исключён из LLM-анализа по конфигу: операции не
+            # передаются агенту и позже помечаются на ручную проверку.
+            cluster_strategy[cluster_id] = {
+                "cluster": cluster_id,
+                "mode": mode,
+                "skipped": True,
+                "n_operations_llm_eligible": profile["n_operations"],
+                "homogeneity": round(profile["homogeneity"], 4),
+                "isolated_share": round(profile["isolated_share"], 4),
+                "n_selected": 0,
+                "min_coverage_after_selection": 0.0,
+            }
+            continue
+
         if mode == "sparse":
             chosen = group.copy()
             chosen["selection_mode"] = "full_sparse"
@@ -82,6 +99,7 @@ def apply_cluster_strategy(
         cluster_strategy[cluster_id] = {
             "cluster": cluster_id,
             "mode": mode,
+            "skipped": False,
             "n_operations_llm_eligible": profile["n_operations"],
             "homogeneity": round(profile["homogeneity"], 4),
             "isolated_share": round(profile["isolated_share"], 4),
