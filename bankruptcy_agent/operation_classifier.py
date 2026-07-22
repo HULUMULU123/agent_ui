@@ -684,6 +684,18 @@ JSON:
 Шаг 11. Запрещено: оценивать риск, юридическая квалификация, вывод о подозрительности,
    возврат документов, добавление полей вне схемы.
 
+Шаг 12. ЧЕСТНО оцени уверенность (confidence). НЕ ставь "high" по умолчанию:
+   - "high" — в purpose есть однозначный предметный признак или прямо названный тип договора;
+     ЛИБО это уверенный "unknown" (в тексте реально нет ни одного предметного признака).
+   - "medium" — предметный признак есть, но слабый, косвенный или неоднозначный; либо ты
+     колебался между двумя subject_id и выбрал по более вероятному, но не бесспорному признаку.
+   - "low" — назначение почти пустое/шаблонное, и выбранный subject_id во многом догадка;
+     ЛИБО ты выбрал конкретный тип, но не уверен, что найденное слово указывает именно на предмет
+     сделки (а не на роль стороны, документ или общий термин).
+   Правило точности: лучше поставить "medium"/"low" на сомнительном назначении, чем ложный "high".
+   Операции с низкой уверенностью уходят на индивидуальную перепроверку, поэтому заниженная, но
+   честная уверенность улучшает итоговую точность, а не ухудшает её.
+
 ПРИМЕРЫ (обрати особое внимание на пары 1-2 — они внешне похожи, но результат разный;
 и на примеры 3-5 — это частые ошибочные срабатывания, которых нужно избежать)
 
@@ -739,7 +751,7 @@ JSON:
 Строго валидный JSON, ничего вне JSON:
 {{
   "operations": [
-    {{ "idx": 0, "group": "", "subject_id": "", "action_id": null, "direction_consistent": true, "flags": [], "confidence": "high" }}
+    {{ "idx": 0, "group": "", "subject_id": "", "action_id": null, "direction_consistent": true, "flags": [], "confidence": "high|medium|low" }}
   ]
 }}
 
@@ -803,47 +815,76 @@ def _to_catalog_direction(direction_ru: Any) -> str:
     return "outflow"
 
 
-CLASSIFIER_SAMPLE_PER_CLUSTER = 20
+from .config import (
+    CLASSIFIER_CONFIDENCE_MIN,
+    CLASSIFIER_PROPAGATION_SIMILARITY_MIN,
+    CLASSIFIER_RECHECK,
+    CLASSIFIER_SAMPLE_PER_CLUSTER,
+)
+
+# Уверенность классификатора как порядковая величина + порог приемлемости.
+_CONF_ORDER = {"low": 0, "medium": 1, "high": 2}
 
 
-def _classify_sample_batch(batch_df: pd.DataFrame, *, can_use_llm: bool, llm: Any) -> list[dict[str, Any]]:
-    """Классифицирует один батч выборки (LLM или детерминированный fallback).
-    Возвращает [{idx, operation_type, requested_documents, operation_type_need_review}]."""
-    payload = [
-        {"idx": row["idx"], "purpose": str(row["purpose"]), "direction": row["_direction_catalog"]}
-        for _, row in batch_df.iterrows()
-    ]
-    raw_ops: list[dict[str, Any]] | None = None
-    if can_use_llm:
-        try:
-            raw_ops = _classify_batch_with_llm(llm, payload)
-        except Exception:
-            raw_ops = None  # реальный LLM недоступен/невалиден -- откат на детерминированный путь
-
-    by_idx = {str(op.get("idx")): op for op in raw_ops} if raw_ops is not None else {}
-
-    classified = []
-    for p in payload:
-        if p["idx"] in by_idx:
-            raw_op = by_idx[p["idx"]]
-            subject_id, action_id, flags = raw_op.get("subject_id"), raw_op.get("action_id"), raw_op.get("flags")
-        else:
-            subject_id, action_id = classify_operation_deterministic(p["purpose"], p["direction"])
-            flags = []
-        validated = validate_op(subject_id, action_id, flags)
-        built = build_operation_row(validated["subject_id"], validated["action_id"], validated["flags"], p["purpose"], p["direction"])
-        classified.append({
-            "idx": p["idx"],
-            "operation_type": built["operation_type"],
-            "requested_documents": built["requested_documents"],
-            "operation_type_need_review": validated["need_review"],
-        })
-    return classified
+def _is_low_confidence(conf: Any, conf_min: str) -> bool:
+    min_rank = _CONF_ORDER.get(str(conf_min or "medium").strip().lower(), 1)
+    return _CONF_ORDER.get(str(conf or "").strip().lower(), 0) < min_rank
 
 
-def _propagate_types_in_cluster(group: pd.DataFrame, classified: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _classify_rows(
+    rows_df: pd.DataFrame, *, can_use_llm: bool, llm: Any,
+    max_ops_per_batch: int, conf_min: str,
+) -> dict[str, dict[str, Any]]:
+    """Классифицирует набор операций [idx, purpose, _direction_catalog] батчами
+    (LLM или детерминированный fallback). Возвращает idx -> {operation_type,
+    requested_documents, operation_type_confidence, operation_type_need_review}.
+    need_review = True при невалидном типе ИЛИ уверенности ниже conf_min."""
+    out: dict[str, dict[str, Any]] = {}
+    if rows_df.empty:
+        return out
+
+    batches = [rows_df.iloc[start:start + max_ops_per_batch] for start in range(0, len(rows_df), max_ops_per_batch)]
+    for batch_df in batches:
+        payload = [
+            {"idx": row["idx"], "purpose": str(row["purpose"]), "direction": row["_direction_catalog"]}
+            for _, row in batch_df.iterrows()
+        ]
+        raw_ops: list[dict[str, Any]] | None = None
+        if can_use_llm:
+            try:
+                raw_ops = _classify_batch_with_llm(llm, payload)
+            except Exception:
+                raw_ops = None  # реальный LLM недоступен/невалиден -- откат на детерминированный путь
+
+        by_idx = {str(op.get("idx")): op for op in raw_ops} if raw_ops is not None else {}
+
+        for p in payload:
+            if p["idx"] in by_idx:
+                raw_op = by_idx[p["idx"]]
+                subject_id, action_id, flags = raw_op.get("subject_id"), raw_op.get("action_id"), raw_op.get("flags")
+                conf = str(raw_op.get("confidence", "")).strip().lower() or "low"
+            else:
+                subject_id, action_id = classify_operation_deterministic(p["purpose"], p["direction"])
+                flags = []
+                conf = "low"
+            validated = validate_op(subject_id, action_id, flags)
+            built = build_operation_row(validated["subject_id"], validated["action_id"], validated["flags"], p["purpose"], p["direction"])
+            out[p["idx"]] = {
+                "operation_type": built["operation_type"],
+                "requested_documents": built["requested_documents"],
+                "operation_type_confidence": conf,
+                "operation_type_need_review": bool(validated["need_review"]) or _is_low_confidence(conf, conf_min),
+            }
+    return out
+
+
+def _propagate_types_in_cluster(
+    group: pd.DataFrame, classified: dict[str, dict[str, Any]], *, sim_min: float, conf_min: str,
+) -> list[dict[str, Any]]:
     """Распространяет тип на несэмплированные операции кластера по сходству purpose
-    (символьные n-граммы 3-5, косинусное сходство) -- см. cell 39 тетрадки agent_v3."""
+    (символьные n-граммы 3-5, косинусное сходство) -- см. cell 39 тетрадки agent_v3.
+    Слабое сходство -> тип неуверенный -> операция уходит на перепроверку, а не
+    наследует чужой тип вслепую."""
     from sklearn.feature_extraction.text import TfidfVectorizer
     from sklearn.metrics.pairwise import cosine_similarity
 
@@ -857,7 +898,7 @@ def _propagate_types_in_cluster(group: pd.DataFrame, classified: dict[str, dict[
             rows.append({
                 "idx": i, "operation_type": "Неопознанный платёж", "requested_documents": [],
                 "operation_type_source": "propagated", "operation_type_similarity": 0.0,
-                "operation_type_need_review": True,
+                "operation_type_confidence": "low", "operation_type_need_review": True,
             })
         return rows
 
@@ -887,13 +928,17 @@ def _propagate_types_in_cluster(group: pd.DataFrame, classified: dict[str, dict[
         else:
             best, best_sim = 0, 0.0
         source = classified[sampled_idx[best]]
+        sim_ok = best_sim >= sim_min
+        prop_conf = source["operation_type_confidence"] if sim_ok else "low"
         rows.append({
             "idx": i,
             "operation_type": source["operation_type"],
             "requested_documents": source["requested_documents"],
             "operation_type_source": "propagated",
             "operation_type_similarity": round(best_sim, 4),
-            "operation_type_need_review": source["operation_type_need_review"],
+            "operation_type_confidence": prop_conf,
+            "operation_type_need_review": bool(source["operation_type_need_review"])
+                                          or (not sim_ok) or _is_low_confidence(prop_conf, conf_min),
         })
     return rows
 
@@ -907,27 +952,33 @@ def classify_and_propagate_operations(
     sample_per_cluster: int = CLASSIFIER_SAMPLE_PER_CLUSTER,
     max_ops_per_batch: int = MAX_OPS_PER_BATCH,
     random_state: int = 42,
+    confidence_min: str = CLASSIFIER_CONFIDENCE_MIN,
+    propagation_similarity_min: float = CLASSIFIER_PROPAGATION_SIMILARITY_MIN,
+    recheck: bool = CLASSIFIER_RECHECK,
 ) -> pd.DataFrame:
     """Определяет тип операции + документы для КАЖДОЙ строки df (включая шумовой
     кластер -1, который основной adaptive-clustering пропускает целиком).
 
-    Экономичная классификация с распространением (см. cell 30/39 тетрадки
-    agent_v3_adaptive_clusters_1.ipynb): из каждого кластера сэмплируется до
+    Экономичная классификация с распространением и перепроверкой (см. cell 30/39
+    тетрадки agent_v3_adaptive_clusters_1.ipynb): из каждого кластера сэмплируется до
     `sample_per_cluster` операций, только они классифицируются модулем классификации
     (llm_helper); остальные операции кластера получают тип наиболее похожей по purpose
-    классифицированной операции (символьные n-граммы, косинусное сходство). Отдельного
-    модуля-верификатора больше нет -- итоговую проверку типа выполняет основной
-    анализатор (см. ANALYZER_PROMPT, ШАГ 1a): тип передаётся как есть, менять его
-    анализатору запрещено.
+    классифицированной операции (символьные n-граммы, косинусное сходство). Операции с
+    низкой уверенностью классификатора (ниже confidence_min) ИЛИ слабым сходством при
+    распространении (ниже propagation_similarity_min) уходят в блок индивидуальной
+    перепроверки. Отдельного модуля-верификатора нет -- итоговую проверку типа
+    выполняет основной анализатор (см. ANALYZER_PROMPT, ШАГ 1a): тип передаётся как
+    есть, менять его анализатору запрещено.
 
     df должен содержать колонки idx, cluster, purpose, direction (в конвенции проекта:
     "убытие"/"прибытие"). Возвращает DataFrame с индексом = df["idx"] и колонками:
     operation_type, requested_documents (list[str]), operation_type_source
-    ("classified"/"propagated"), operation_type_similarity, operation_type_need_review.
+    ("classified"/"propagated"/"rechecked"), operation_type_similarity,
+    operation_type_confidence, operation_type_need_review.
     """
     empty_columns = [
-        "idx", "operation_type", "requested_documents",
-        "operation_type_source", "operation_type_similarity", "operation_type_need_review",
+        "idx", "operation_type", "requested_documents", "operation_type_source",
+        "operation_type_similarity", "operation_type_confidence", "operation_type_need_review",
     ]
     if df.empty:
         return pd.DataFrame(columns=empty_columns).set_index("idx")
@@ -947,25 +998,53 @@ def classify_and_propagate_operations(
     if reporter is not None:
         reporter.note(f"Определяю тип операции: выборка {len(sample_df)} из {len(rows)} операций")
 
-    classified: dict[str, dict[str, Any]] = {}
-    batches = [sample_df.iloc[start:start + max_ops_per_batch] for start in range(0, len(sample_df), max_ops_per_batch)]
-    for batch_i, batch_df in enumerate(batches, start=1):
-        if reporter is not None:
-            reporter.note(f"Классификация типа операции: батч {batch_i} из {len(batches)}")
-        for c in _classify_sample_batch(batch_df, can_use_llm=can_use_llm, llm=llm):
-            classified[c["idx"]] = {k: v for k, v in c.items() if k != "idx"}
+    classified = _classify_rows(
+        sample_df, can_use_llm=can_use_llm, llm=llm,
+        max_ops_per_batch=max_ops_per_batch, conf_min=confidence_min,
+    )
 
     type_rows: list[dict[str, Any]] = []
     for _, group in rows.groupby("cluster", sort=False):
-        type_rows.extend(_propagate_types_in_cluster(group, classified))
+        type_rows.extend(_propagate_types_in_cluster(
+            group, classified, sim_min=propagation_similarity_min, conf_min=confidence_min,
+        ))
 
     result_df = pd.DataFrame(type_rows).set_index("idx", drop=False)
+
+    # Блок перепроверки: неуверенные типы переклассифицируются ИНДИВИДУАЛЬНО (по
+    # собственному purpose операции), а не наследуют тип по сходству.
+    n_rechecked_ok = 0
+    if recheck:
+        recheck_idx = result_df.loc[result_df["operation_type_need_review"], "idx"].tolist()
+        if recheck_idx:
+            if reporter is not None:
+                reporter.note(f"Перепроверка типа: {len(recheck_idx)} операций с низкой уверенностью")
+            recheck_rows = rows[rows["idx"].isin(recheck_idx)]
+            rechecked = _classify_rows(
+                recheck_rows, can_use_llm=can_use_llm, llm=llm,
+                max_ops_per_batch=max_ops_per_batch, conf_min=confidence_min,
+            )
+            for idx, res in rechecked.items():
+                if idx not in result_df.index:
+                    continue
+                result_df.at[idx, "operation_type"] = res["operation_type"]
+                result_df.at[idx, "requested_documents"] = res["requested_documents"]
+                result_df.at[idx, "operation_type_confidence"] = res["operation_type_confidence"]
+                result_df.at[idx, "operation_type_need_review"] = res["operation_type_need_review"]
+                result_df.at[idx, "operation_type_source"] = "rechecked"
+                result_df.at[idx, "operation_type_similarity"] = 1.0
+                if not res["operation_type_need_review"]:
+                    n_rechecked_ok += 1
+
     if reporter is not None:
         n_classified = int((result_df["operation_type_source"] == "classified").sum())
         n_propagated = int((result_df["operation_type_source"] == "propagated").sum())
+        n_rechecked = int((result_df["operation_type_source"] == "rechecked").sum())
+        n_need_review = int(result_df["operation_type_need_review"].sum())
         n_unknown = int(result_df["operation_type"].str.startswith("Неопознанный").sum())
         reporter.note(
-            f"Тип операции определен для {len(result_df)} операций "
-            f"(классифицировано: {n_classified}, распространено: {n_propagated}, неопознанных: {n_unknown})"
+            f"Тип операции определен для {len(result_df)} операций (классифицировано: {n_classified}, "
+            f"распространено: {n_propagated}, перепроверено: {n_rechecked}, "
+            f"осталось неуверенных: {n_need_review}, неопознанных: {n_unknown})"
         )
     return result_df

@@ -18,6 +18,51 @@ from .utils import clean_text as clean_text_or_empty
 logger = logging.getLogger("bankruptcy_agent.runtime")
 
 
+# ==========================================================
+# Обезличивание ИНН для передачи в LLM
+# ==========================================================
+# Реальные ИНН сторон не отправляются в модель: они заменяются на стабильные
+# псевдонимы (ORG_1, ORG_2, ...). Это снимает триггер осторожной модели на
+# "анализ реального лица" и убирает персональные/учётные идентификаторы из
+# промпта. Единственный инструмент, которому нужен настоящий ИНН, --
+# get_conterparty_risk (исторический риск контрагента): tools_node переводит
+# псевдоним обратно в реальный ИНН ПЕРЕД вызовом, а реальный ИНН в результате
+# инструмента снова маскируется псевдонимом ПЕРЕД возвратом в контекст модели.
+
+INN_ALIAS_PREFIX = "ORG_"
+
+
+def _pseudonymize_operations_inn(operations: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, str]]:
+    """Заменяет реальные ИНН в debit_inn/credit_inn на псевдонимы ORG_N.
+
+    Возвращает (обезличенные операции, обратную карту {псевдоним: реальный ИНН}).
+    Пустые/невалидные (не из цифр) значения не трогаются.
+    """
+    forward: dict[str, str] = {}
+    reverse: dict[str, str] = {}
+
+    def alias_for(inn_value: Any) -> Any:
+        inn = str(inn_value or "").strip()
+        if not inn or not inn.isdigit():
+            return inn_value
+        if inn not in forward:
+            alias = f"{INN_ALIAS_PREFIX}{len(forward) + 1}"
+            forward[inn] = alias
+            reverse[alias] = inn
+        return forward[inn]
+
+    anonymized = []
+    for op in operations:
+        op_copy = dict(op)
+        for field in ("debit_inn", "credit_inn"):
+            if field in op_copy:
+                op_copy[field] = alias_for(op_copy[field])
+        anonymized.append(op_copy)
+    return anonymized, reverse
+
+
+
+
 def _make_messages(system: str, human: str) -> list[Any]:
     try:
         from langchain_core.messages import HumanMessage, SystemMessage
@@ -328,6 +373,10 @@ def run_cluster_agent(
     reporter: ProgressReporter | None = None,
 ) -> AgentClusterResult:
     operations = records_for_llm(cluster_df)
+    # Обезличивание: реальные ИНН сторон -> псевдонимы ORG_N перед LLM. Обратная
+    # карта используется только при вызове get_conterparty_risk (исторический
+    # риск контрагента), см. execute_requested_tool.
+    operations, inn_reverse_map = _pseudonymize_operations_inn(operations)
     n_ops = len(operations)
     tool_results: list[dict[str, Any]] = []
     warnings: list[str] = []
@@ -373,7 +422,7 @@ def run_cluster_agent(
             if isinstance(tool_req, dict):
                 if reporter is not None:
                     reporter.note(f"Кластер {cluster_id}: {friendly_tool_message(str(tool_req.get('name', '')))}")
-                tool_results.append(execute_requested_tool(runtime, tool_req))
+                tool_results.append(execute_requested_tool(runtime, tool_req, inn_reverse_map=inn_reverse_map))
         remaining_steps = after
 
     if reporter is not None:

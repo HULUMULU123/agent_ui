@@ -168,8 +168,8 @@ def run_agent_pipeline(
                 reporter=reporter.sub(start_pct, end_pct),
             )
             classification_cols = [
-                "operation_type", "requested_documents",
-                "operation_type_source", "operation_type_similarity", "operation_type_need_review",
+                "operation_type", "requested_documents", "operation_type_source",
+                "operation_type_similarity", "operation_type_confidence", "operation_type_need_review",
             ]
             if not classification.empty:
                 to_merge = classification[classification_cols].copy()
@@ -183,7 +183,8 @@ def run_agent_pipeline(
                 df_unique = df_unique.drop(columns=["_classifier_idx"])
                 n_classified = int((classification["operation_type_source"] == "classified").sum())
                 n_propagated = int((classification["operation_type_source"] == "propagated").sum())
-                print(f"[agent] Тип операции определен: {len(classification)} операций (классифицировано: {n_classified}, распространено: {n_propagated})", flush=True)
+                n_rechecked = int((classification["operation_type_source"] == "rechecked").sum())
+                print(f"[agent] Тип операции определен: {len(classification)} операций (классифицировано: {n_classified}, распространено: {n_propagated}, перепроверено: {n_rechecked})", flush=True)
 
         elif step == "Анализ представителей кластеров":
             assert df_unique is not None

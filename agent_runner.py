@@ -1,17 +1,73 @@
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 from typing import Any
 
 from tqdm.auto import tqdm
 
 from bankruptcy_agent import run_agent_pipeline, save_payload
+from bankruptcy_agent.config import FAST_MODE_DELAY_SECONDS, FAST_MODE_DIR, FAST_MODE_ENABLED
 from bankruptcy_agent.progress_utils import StatusCallback
 
 ROOT = Path(__file__).resolve().parent
 ASSETS = ROOT / "assets"
 RUNTIME_PAYLOAD_PATH = ASSETS / "dashboard_payload_runtime.json"
+
+
+def _fast_mode_result_path(path: Path) -> Path:
+    return FAST_MODE_DIR / f"{path.stem}.json"
+
+
+def _try_fast_mode(
+    path: Path, *, progress: Any | None = None, status_callback: StatusCallback | None = None,
+) -> dict[str, Any] | None:
+    """Быстрый режим: если для загруженного файла уже есть подготовленный payload
+    с таким же именем в FAST_MODE_DIR, отдаёт его после искусственной задержки
+    вместо реального прогона агента (для демонстраций на заранее подготовленных
+    примерах, без ожидания реального времени работы LLM-конвейера).
+    """
+    if not FAST_MODE_ENABLED:
+        return None
+    prepared_path = _fast_mode_result_path(path)
+    if not prepared_path.exists():
+        return None
+
+    try:
+        payload = json.loads(prepared_path.read_text(encoding="utf-8"))
+    except Exception as exc:
+        print(f"[agent] Быстрый режим: не удалось прочитать подготовленный payload {prepared_path}: {exc}", flush=True)
+        return None
+
+    print(f"[agent] Быстрый режим: найден подготовленный результат для '{path.name}' -> {prepared_path.name}", flush=True)
+
+    delay = max(0.0, FAST_MODE_DELAY_SECONDS)
+    steps = 5
+    for i in range(steps):
+        fraction = (i + 1) / steps
+        if status_callback is not None:
+            status_callback("Загружаю подготовленный результат анализа" if fraction < 1 else "Готово", fraction)
+        if progress is not None:
+            progress(fraction, desc="Быстрый режим: загрузка подготовленного результата")
+        if delay:
+            time.sleep(delay / steps)
+
+    payload.setdefault("meta", {})["mode"] = "fast_mode"
+    payload["meta"]["sourceFile"] = path.name
+    save_payload(payload, RUNTIME_PAYLOAD_PATH)
+
+    summary = payload.get("summary", {})
+    return {
+        "filename": path.name,
+        "rows": int(summary.get("inputRows", 0) or 0),
+        "columns": int(summary.get("inputColumns", 0) or 0),
+        "head_text": json.dumps({"columns": [], "rows": []}, ensure_ascii=False),
+        "payload": payload,
+        "payload_path": str(RUNTIME_PAYLOAD_PATH),
+        "mode": "fast_mode",
+        "export_zip_path": "",
+    }
 
 
 def dataframe_head_preview_json(df, rows: int = 5) -> str:
@@ -83,6 +139,10 @@ def run_uploaded_statement(
 
     if path is None:
         raise ValueError("В рабочем режиме нужно передать Excel/CSV-файл.")
+
+    fast_result = _try_fast_mode(path, progress=progress, status_callback=status_callback)
+    if fast_result is not None:
+        return fast_result
 
     artifacts = run_agent_pipeline(path, progress=progress, use_real_agent=use_real_agent, status_callback=status_callback)
     save_payload(artifacts.payload, RUNTIME_PAYLOAD_PATH)

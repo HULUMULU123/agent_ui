@@ -111,6 +111,7 @@ def normalize_single_analysis_row(row: dict[str, Any]) -> dict[str, Any]:
         "operation_type": clean_text(row.get("operation_type") or ""),
         "operation_type_source": clean_text(row.get("operation_type_source") or ""),
         "operation_type_similarity": to_float(row.get("operation_type_similarity"), 1.0),
+        "operation_type_confidence": clean_text(row.get("operation_type_confidence") or ""),
         "operation_type_need_review": bool(row.get("operation_type_need_review", False)),
         "used_tools": parse_maybe_json(row.get("used_tools", [])),
         "status": clean_text(row.get("status", "success")),
