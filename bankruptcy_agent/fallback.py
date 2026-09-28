@@ -234,6 +234,12 @@ def infer_counterparty_category(name: str, inn: str) -> str:
     return "не определено"
 def risk_label(value: int) -> str:
     return {0: "0 / низкий", 1: "1 / умеренный", 2: "2 / средний", 3: "3 / высокий"}.get(int(value), "не определен")
+def risk_score(value: int) -> int:
+    """Бинарный скор для выдачи сотруднику: 0 -- риска нет, 1 -- риск есть."""
+    return 1 if int(value) >= 2 else 0
+def risk_score_label(value: int) -> str:
+    score = risk_score(value)
+    return f"{score} / риск есть" if score else f"{score} / риска нет"
 def risk_class(value: int) -> str:
     if value <= 1:
         return "green"

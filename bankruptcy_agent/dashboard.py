@@ -9,7 +9,7 @@ from typing import Any
 import pandas as pd
 
 from .config import REQUIRED_TRANSACTION_COLUMNS
-from .fallback import risk_class, risk_label
+from .fallback import risk_class, risk_label, risk_score_label
 from .output_normalizer import normalize_agent_output
 from .preprocessing import _first_existing, normalize_columns
 from .utils import clean_text, ensure_list, format_money, int_safe, short_string
@@ -39,14 +39,11 @@ def build_payload_from_agent_outputs(
             "transaction_category": row.get("transaction_category", ""),
             "counterparty": row.get("counterparty", row.get("counterparty_category", "")),
             "inn": row.get("counterparty_inn", ""),
-            "risk_level": row.get("risk_label", risk_label(int_safe(row.get("risk_level", 0)))),
+            "risk_level": risk_score_label(int_safe(row.get("risk_level", 0))),
             "connection_basis": row.get("connection_summary", ""),
             "legal_qualification": row.get("legal_qualification", ""),
             "challenge_readiness": row.get("challenge_readiness", ""),
             "recommendation": row.get("recommendation", ""),
-            "analysis_source": row.get("analysis_source", "llm"),
-            "propagation_confidence": row.get("propagation_confidence", "high"),
-            "needs_review": bool(row.get("needs_review", False)),
         })
 
     statement_summary = build_statement_summary(input_df, prepared, sampled_df, warnings)
@@ -462,13 +459,15 @@ def build_main_tables(input_df: pd.DataFrame, analysis: pd.DataFrame, rows: int 
     """
     original = _table_preview(_restrict_to_original_preview_columns(input_df), rows)
     final_cols = [
-        "idx", "date", "amount", "transaction_category", "counterparty", "risk_label",
-        "legal_qualification", "analysis_source", "propagation_confidence", "recommendation",
+        "idx", "date", "amount", "transaction_category", "counterparty", "risk_score",
+        "legal_qualification", "recommendation",
     ]
     if analysis.empty:
         final_df = pd.DataFrame(columns=final_cols)
     else:
-        final_df = analysis[[c for c in final_cols if c in analysis.columns]].copy()
+        tmp = analysis.copy()
+        tmp["risk_score"] = tmp.get("risk_level", pd.Series([0] * len(tmp))).apply(lambda v: risk_score_label(int_safe(v)))
+        final_df = tmp[[c for c in final_cols if c in tmp.columns]].copy()
         if "amount" in final_df.columns:
             final_df["amount"] = final_df["amount"].apply(format_money)
     final = _table_preview(final_df, rows)

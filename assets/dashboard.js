@@ -482,7 +482,7 @@
     downloadsInitialized = true;
     app.querySelector("#download-transactions")?.addEventListener("click", () => {
       const rows = window.financeDashboardApp?.getFilteredTransactions?.() || data.transactions || [];
-      downloadCsv("transactions.csv", rows, ["idx", "date", "cluster_id", "amount", "transaction_category", "counterparty", "inn", "risk_level", "connection_basis", "legal_qualification", "challenge_readiness", "recommendation", "analysis_source", "propagation_confidence"]);
+      downloadCsv("transactions.csv", rows, ["idx", "date", "cluster_id", "amount", "transaction_category", "counterparty", "inn", "risk_level", "connection_basis", "legal_qualification", "challenge_readiness", "recommendation"]);
     });
 
     app.querySelector("#download-legal")?.addEventListener("click", () => {

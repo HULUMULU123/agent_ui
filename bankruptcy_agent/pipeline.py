@@ -254,6 +254,41 @@ def run_agent_pipeline(
     )
 
 
+# Служебные поля пайплайна (распространение анализа, определение типа операции,
+# внутренняя кластеризация), которые не нужны сотруднику в итоговой выдаче --
+# см. AGENT_OUTPUT_FIELDS в config.py и комментарии в propagation.py/output_normalizer.py.
+EXPORT_TECHNICAL_COLUMNS = [
+    "analysis_source",
+    "matched_representative_idx",
+    "similarity_score",
+    "propagation_confidence",
+    "propagation_status",
+    "propagation_note",
+    "needs_review",
+    "is_below_llm_threshold",
+    "operation_type_source",
+    "operation_type_similarity",
+    "operation_type_confidence",
+    "operation_type_need_review",
+    "used_tools",
+    "status",
+    "error",
+    "cluster",
+    "batch_group",
+]
+
+
+def _prepare_analysis_export_table(df: pd.DataFrame) -> pd.DataFrame:
+    """Убирает служебные технические колонки и переводит risk_level в бинарный
+    скор (0 -- риска нет, 1 -- риск есть) для таблиц, уходящих в выдачу."""
+    if df.empty:
+        return df.copy()
+    table = df.drop(columns=[c for c in EXPORT_TECHNICAL_COLUMNS if c in df.columns])
+    if "risk_level" in table.columns:
+        table["risk_level"] = pd.to_numeric(table["risk_level"], errors="coerce").fillna(0).astype(int).apply(lambda v: 1 if v >= 2 else 0)
+    return table
+
+
 def _build_export_tables(
     input_df: pd.DataFrame,
     df_unique: pd.DataFrame,
@@ -272,12 +307,12 @@ def _build_export_tables(
     if rejected_df is not None and not rejected_df.empty:
         tables["отбракованные_операции"] = rejected_df
     if analyzed_representatives is not None and not analyzed_representatives.empty:
-        tables["анализ_представителей"] = analyzed_representatives
-    tables["полная_выписка_с_анализом"] = full_analysis
+        tables["анализ_представителей"] = _prepare_analysis_export_table(analyzed_representatives)
     if "needs_review" in full_analysis.columns:
         review_queue = full_analysis[full_analysis["needs_review"] == True]  # noqa: E712
         if not review_queue.empty:
-            tables["на_ручную_проверку"] = review_queue
+            tables["на_ручную_проверку"] = _prepare_analysis_export_table(review_queue)
+    tables["полная_выписка_с_анализом"] = _prepare_analysis_export_table(full_analysis)
     return tables
 
 
