@@ -91,11 +91,11 @@ def build_app() -> gr.Blocks:
                                     'Парсер определит таблицу операций и владельца счёта сам. Можно загрузить сразу несколько файлов — они встанут в очередь.</p>')
                             C.up_files = gr.File(label="Файлы выписок", file_count="multiple",
                                                  file_types=list(SUPPORTED_SUFFIXES), height=130)
-                            with gr.Row():
+                            with gr.Row(elem_classes=["filters"]):
                                 C.up_date = gr.Textbox(label="Дата заявления о банкротстве (ДД.ММ.ГГГГ)", placeholder="например, 10.10.2025",
                                                        info="От неё считаются периоды подозрительности (1 мес., 6 мес., 1 год, 3 года).", scale=2)
                                 C.up_btn = gr.Button("Начать анализ", variant="primary", scale=1, min_width=180)
-                                C.up_demo = gr.Button("Попробовать на демо-выписке", scale=1, min_width=220)
+                                C.up_demo = gr.Button("Демо-выписка", scale=1, min_width=170)
                             C.up_msg = gr.HTML()
                         C.reg_jobs = gr.HTML()
                         C.reg_table = gr.Dataframe(value=pd.DataFrame(columns=V.REGISTRY_COLUMNS), interactive=False, wrap=True, max_height=380,
@@ -149,13 +149,13 @@ def build_app() -> gr.Blocks:
                                 C.op_sort = gr.Dropdown(SORT_CHOICES, value="Дата ↑", label="Сортировка", scale=1, min_width=150)
                                 C.op_size = gr.Dropdown(V.PAGE_SIZES, value="25", label="На странице", scale=1, min_width=110)
                                 C.op_reset = gr.Button("Сбросить", min_width=110, scale=0)
-                                C.op_export = gr.Button("Выгрузить в Excel", variant="primary", min_width=170, scale=0)
+                                C.op_export = gr.Button("Выгрузить в Excel", variant="primary", min_width=190, scale=0)
                         C.op_table = gr.Dataframe(value=pd.DataFrame(columns=V.OPS_COLUMNS), interactive=False, wrap=True, max_height=620,
-                                                  label="Операции", column_widths=[52, 185, 105, 230, 125, 340, 125, 125, 210, 150, 160, 130])
+                                                  label="Операции", column_widths=[46, 165, 92, 190, 108, 270, 104, 104, 170, 118, 130, 110])
                         with gr.Row(elem_classes=["pager"]):
                             C.op_info = gr.HTML()
                             C.op_prev = gr.Button("← Назад", min_width=100, scale=0)
-                            C.op_page_no = gr.Number(value=1, precision=0, label="Страница", minimum=1, scale=0, min_width=100)
+                            C.op_page_no = gr.Number(value=1, precision=0, label="Страница", show_label=False, container=False, minimum=1, scale=0, min_width=80)
                             C.op_next = gr.Button("Вперёд →", min_width=100, scale=0)
                         gr.HTML('<p class="muted small">Нажмите на строку, чтобы открыть карточку операции с основанием проверки и вопросами для сотрудника.</p>')
                         C.op_file = gr.File(label="Файл выгрузки", visible=False)
@@ -165,12 +165,12 @@ def build_app() -> gr.Blocks:
                         C.dt_back = gr.Button("← К списку операций", min_width=180, scale=0)
                         C.dt_head = gr.HTML()
                         with gr.Row():
-                            with gr.Column(scale=4):
+                            with gr.Column(scale=4, min_width=300):
                                 C.dt_info = gr.HTML()
                                 C.dt_docs = gr.HTML()
-                            with gr.Column(scale=5):
+                            with gr.Column(scale=5, min_width=340):
                                 C.dt_ground = gr.HTML()
-                            with gr.Column(scale=4):
+                            with gr.Column(scale=4, min_width=300):
                                 with gr.Group(elem_classes=["ctrl-card"]):
                                     gr.HTML('<h3>Обстоятельства, подлежащие проверке</h3>')
                                     C.dt_checks = gr.CheckboxGroup(choices=[], label="Отметьте, что уже проверено", container=False)
@@ -199,11 +199,11 @@ def build_app() -> gr.Blocks:
                                 C.rc_size = gr.Dropdown(V.REC_SIZES, value="15", label="На странице", scale=1, min_width=110)
                         C.rc_table = gr.Dataframe(value=pd.DataFrame(columns=V.REC_COLUMNS), interactive=True, wrap=True, max_height=640,
                                                   static_columns=[0, 1, 2, 3, 4, 5], label="Рекомендации к правке", type="pandas",
-                                                  column_widths=[50, 180, 100, 220, 120, 140, 620])
+                                                  column_widths=[46, 165, 92, 190, 104, 118, 520])
                         with gr.Row(elem_classes=["pager"]):
                             C.rc_save = gr.Button("Сохранить правки", variant="primary", scale=0, min_width=190)
                             C.rc_prev = gr.Button("← Назад", min_width=100, scale=0)
-                            C.rc_page_no = gr.Number(value=1, precision=0, label="Страница", minimum=1, scale=0, min_width=100)
+                            C.rc_page_no = gr.Number(value=1, precision=0, label="Страница", show_label=False, container=False, minimum=1, scale=0, min_width=80)
                             C.rc_next = gr.Button("Вперёд →", min_width=100, scale=0)
                         C.rc_msg = gr.HTML()
 
@@ -223,7 +223,7 @@ def build_app() -> gr.Blocks:
                                 C.cp_level = gr.Dropdown(V.CP_LEVEL_CHOICES, value="Все", label="Уровень риска", scale=1, min_width=180)
                         C.cp_table = gr.Dataframe(value=pd.DataFrame(columns=V.CP_COLUMNS), interactive=False, wrap=True, max_height=460,
                                                   label="Список контрагентов",
-                                                  column_widths=[125, 260, 95, 135, 120, 280, 150, 130, 120, 150])
+                                                  column_widths=[112, 230, 84, 120, 100, 240, 130, 120, 110, 130])
                         C.cp_detail = gr.HTML()
                         C.cp_show_ops = gr.Button("Показать операции контрагента", visible=False, scale=0, min_width=240)
 
@@ -244,7 +244,7 @@ def build_app() -> gr.Blocks:
                         C.rp_msg = gr.HTML()
                         C.rp_table = gr.Dataframe(value=pd.DataFrame(columns=V.REPORT_COLUMNS), interactive=False, wrap=True, max_height=420,
                                                   label="Работа сотрудника по операциям (нажмите строку, чтобы открыть карточку)",
-                                                  column_widths=[50, 185, 105, 230, 330, 125, 150, 340, 160, 220])
+                                                  column_widths=[46, 165, 92, 190, 260, 104, 118, 300, 130, 180])
                         C.rp_quality = gr.HTML()
 
                     # ═══════ Настройки ═══════

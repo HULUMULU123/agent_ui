@@ -83,7 +83,7 @@ def kpi_card(label: str, value: str, icon_name: str, tone: str, sub: str = "", s
 
 
 def kpi_row(cards: list[str]) -> str:
-    return f'<div class="kpi-row">{"".join(cards)}</div>'
+    return f'<div class="kpi-row n{len(cards)}">{"".join(cards)}</div>'
 
 
 def status_chip(status: str) -> str:
