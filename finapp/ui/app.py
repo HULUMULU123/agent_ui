@@ -126,18 +126,18 @@ def build_app() -> gr.Blocks:
                     with gr.Tab("overview", id="overview"):
                         C.ov_head = gr.HTML()
                         C.ov_kpis = gr.HTML()
-                        with gr.Row():
+                        with gr.Row(elem_classes=["eq-row"]):
                             with gr.Column(scale=2, min_width=280):
                                 C.ov_cash = gr.HTML()
                             with gr.Column(scale=4, min_width=360):
                                 C.ov_month = gr.HTML()
                             with gr.Column(scale=3, min_width=340):
                                 C.ov_cat = gr.HTML()
-                        with gr.Row():
-                            with gr.Column(scale=2):
+                        C.ov_top_mode = gr.Radio(TOP_MODES, value="count", label="Топ-5 контрагентов — упорядочить", container=False, elem_classes=["seg"])
+                        with gr.Row(elem_classes=["eq-row"]):
+                            with gr.Column(scale=2, min_width=300):
                                 C.ov_dist = gr.HTML()
-                            with gr.Column(scale=3):
-                                C.ov_top_mode = gr.Radio(TOP_MODES, value="count", label="Топ-5 контрагентов", container=False, elem_classes=["seg"])
+                            with gr.Column(scale=3, min_width=340):
                                 C.ov_top = gr.HTML()
 
                     # ═══════ Операции ═══════
@@ -187,9 +187,9 @@ def build_app() -> gr.Blocks:
                                     C.dt_rec_note = gr.HTML()
                                     C.dt_decision = gr.Radio(DECISION_CHOICES, value="", label="Решение сотрудника")
                                     C.dt_comment = gr.Textbox(label="Комментарий", lines=3, placeholder="Что установлено, какие документы запрошены…")
-                                    with gr.Row():
+                                    with gr.Row(elem_classes=["btn-row"]):
                                         C.dt_save = gr.Button("Сохранить", variant="primary")
-                                        C.dt_rec_reset = gr.Button("Вернуть рекомендацию агента")
+                                        C.dt_rec_reset = gr.Button("Вернуть исходный текст рекомендации")
                                     C.dt_msg = gr.HTML()
                                 C.dt_related = gr.HTML()
 
@@ -218,11 +218,11 @@ def build_app() -> gr.Blocks:
                     with gr.Tab("counterparties", id="counterparties"):
                         gr.HTML(R.page_header("Контрагенты", "Анализ контрагентов и связанных операций"))
                         C.cp_kpis = gr.HTML()
-                        with gr.Row():
-                            with gr.Column(scale=3):
-                                C.cp_top_mode = gr.Radio(TOP_MODES, value="count", label="Топ-5 контрагентов", container=False, elem_classes=["seg"])
+                        C.cp_top_mode = gr.Radio(TOP_MODES, value="count", label="Топ-5 контрагентов — упорядочить", container=False, elem_classes=["seg"])
+                        with gr.Row(elem_classes=["eq-row"]):
+                            with gr.Column(scale=3, min_width=340):
                                 C.cp_top = gr.HTML()
-                            with gr.Column(scale=3):
+                            with gr.Column(scale=3, min_width=340):
                                 C.cp_cat = gr.HTML()
                         with gr.Group(elem_classes=["ctrl-card"]):
                             with gr.Row(elem_classes=["filters"]):

@@ -89,6 +89,12 @@ h3 { font-size: 15px; font-weight: 700; margin: 0; } h4 { font-size: 13px; color
 #up-files button.center .wrap .icon-wrap { width: 46px !important; height: 46px !important; color: var(--accent); }
 #up-files button.center .wrap .or { display: none; }
 #up-files button.center::after { content: "Перетащите файл выписки сюда\\A или нажмите, чтобы выбрать на компьютере"; white-space: pre-line; text-align: center; font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--text); }
+/* ряды карточек одной высоты и без «раскрытия всех сразу» */
+.eq-row { align-items: stretch !important; } .eq-row > .column { display: flex; flex-direction: column; } .eq-row .block { flex: 1; }
+.eq-row .html-container, .eq-row .prose { height: 100%; } .eq-row .card { height: 100%; box-sizing: border-box; }
+.routes { align-items: start; margin-top: 4px; } .routes .card { align-self: start; }
+.page-head { margin-bottom: 4px; }
+.btn-row { gap: 10px !important; flex-wrap: wrap !important; } #main .btn-row button.lg, #main .btn-row button.md { white-space: normal; height: auto; min-height: 40px; line-height: 1.25; padding-top: 8px; padding-bottom: 8px; }
 /* HTML-блоки вровень с таблицами и полями: убираем внутренний отступ Gradio */
 .html-container.padding, .html-container { padding: 0 !important; }
 /* карточки */

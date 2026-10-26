@@ -409,7 +409,7 @@ def grounds_block(ctx: Context) -> str:
     summary = grounds_summary(ctx.df)
     if summary.empty:
         return ""
-    return '<h3 class="section-h">Основания проверки</h3>' + R.route_cards(summary, ROUTE_CHECKS)
+    return R.route_cards(summary, ROUTE_CHECKS)
 
 
 def quality_block(ctx: Context) -> str:
