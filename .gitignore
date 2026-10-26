@@ -9,3 +9,5 @@ assets/dashboard_payload_runtime.json
 assets/dashboard_exports/
 .claude
 /.claude
+/data/
+*.bak-*

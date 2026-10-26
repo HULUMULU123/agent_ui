@@ -1,12 +1,14 @@
+# Основное приложение (режим «по правилам» работает и без GigaChat)
 gradio==5.49.1
 pydantic==2.11.10
 pydantic-core==2.33.2
 pandas>=2.2,<3
+numpy>=1.26
 scikit-learn>=1.4,<2
 openpyxl>=3.1,<4
 xlrd>=2.0,<3
-tqdm>=4.66,<5
-
 python-dotenv>=1.0,<2
-langchain-core>=0.3,<0.4
-langgraph>=0.2,<0.4
+
+# GigaChat-3-Ultra (парсер выписок + агент)
+langchain-core>=0.3
+langchain-gigachat

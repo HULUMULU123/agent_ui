@@ -1,0 +1,12 @@
+# Форматы выписок помимо Excel/CSV
+pdfplumber
+python-docx
+# Лемматизация назначений платежа (улучшает группировку операций)
+pymorphy3
+# Правовой поиск: нормативная база и судебная практика (FAISS)
+faiss-cpu>=1.8
+langchain-community>=0.3
+langchain-classic
+langchain-text-splitters
+# Агент-самопроверка парсера для сложных выписок
+langgraph>=0.2
