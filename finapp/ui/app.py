@@ -86,16 +86,23 @@ def build_app() -> gr.Blocks:
                     with gr.Tab("registry", id="registry"):
                         gr.HTML(R.page_header("Анализы выписок", "Реестр загруженных выписок: загрузите файл, следите за ходом анализа и открывайте готовые результаты"))
                         C.reg_kpis = gr.HTML()
-                        with gr.Group(elem_classes=["ctrl-card"]):
-                            gr.HTML('<h3>Загрузить выписку</h3><p class="muted small" style="margin:4px 0 0">Excel, CSV, Word, PDF, HTML или текст (формат 1С). '
-                                    'Парсер определит таблицу операций и владельца счёта сам. Можно загрузить сразу несколько файлов — они встанут в очередь.</p>')
-                            C.up_files = gr.File(label="Файлы выписок", file_count="multiple",
-                                                 file_types=list(SUPPORTED_SUFFIXES), height=130)
-                            with gr.Row(elem_classes=["filters"]):
-                                C.up_date = gr.Textbox(label="Дата заявления о банкротстве (ДД.ММ.ГГГГ)", placeholder="например, 10.10.2025",
-                                                       info="От неё считаются периоды подозрительности (1 мес., 6 мес., 1 год, 3 года).", scale=2)
-                                C.up_btn = gr.Button("Начать анализ", variant="primary", scale=1, min_width=180)
-                                C.up_demo = gr.Button("Демо-выписка", scale=1, min_width=170)
+                        with gr.Group(elem_classes=["ctrl-card", "upload-card"]):
+                            gr.HTML('<h3>Загрузить выписку</h3>')
+                            with gr.Row(elem_classes=["upload-grid"]):
+                                with gr.Column(scale=3, min_width=320):
+                                    gr.HTML('<div class="step"><span class="step-n">1</span>Перетащите файл в рамку или нажмите на неё</div>')
+                                    C.up_files = gr.File(label="Файлы выписок", show_label=False, container=False, file_count="multiple",
+                                                         file_types=list(SUPPORTED_SUFFIXES), height=190, elem_id="up-files")
+                                    gr.HTML('<p class="muted small up-hint">Excel, CSV, Word, PDF, HTML или текст 1С. Можно выбрать сразу несколько файлов — '
+                                            'они встанут в очередь. Таблицу операций и владельца счёта парсер определит сам.</p>')
+                                with gr.Column(scale=2, min_width=280, elem_classes=["upload-side"]):
+                                    gr.HTML('<div class="step"><span class="step-n">2</span>Укажите дату заявления о банкротстве</div>')
+                                    C.up_date = gr.Textbox(label="Дата заявления (ДД.ММ.ГГГГ)", show_label=False, container=False,
+                                                           placeholder="например, 10.10.2025")
+                                    gr.HTML('<p class="muted small up-hint">От неё считаются периоды подозрительности: 1 месяц, 6 месяцев, 1 год, 3 года.</p>')
+                                    gr.HTML('<div class="step"><span class="step-n">3</span>Запустите анализ</div>')
+                                    C.up_btn = gr.Button("Начать анализ", variant="primary", size="lg")
+                                    C.up_demo = gr.Button("Попробовать на демо-выписке", size="sm")
                             C.up_msg = gr.HTML()
                         C.reg_jobs = gr.HTML()
                         C.reg_table = gr.Dataframe(value=pd.DataFrame(columns=V.REGISTRY_COLUMNS), interactive=False, wrap=True, max_height=380,

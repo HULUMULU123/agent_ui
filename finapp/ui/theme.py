@@ -72,6 +72,23 @@ button:active { transform: translateY(1px); }
 .section-h { font-size: 18px; margin: 8px 0 -4px; }
 h3 { font-size: 15px; font-weight: 700; margin: 0; } h4 { font-size: 13px; color: var(--muted); text-transform: none; font-weight: 700; margin: 16px 0 6px; }
 
+/* загрузка выписки */
+.upload-card { gap: 12px !important; } .upload-grid { gap: 22px !important; align-items: stretch !important; flex-wrap: wrap !important; }
+.upload-grid > .column { gap: 8px !important; } .upload-side { justify-content: flex-start; }
+.step { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 14px; margin-top: 2px; }
+.step-n { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; flex: none; font-size: 13px; background: rgba(37,227,165,.18); color: var(--accent); border: 1px solid rgba(37,227,165,.5); }
+.up-hint { margin: 0 !important; line-height: 1.45; }
+.upload-side button.lg { height: 48px; font-size: 15px; } .upload-side .step:nth-of-type(n+2) { margin-top: 8px; }
+/* зона перетаскивания: русские подписи вместо стандартных английских */
+#up-files { border: 0 !important; padding: 0 !important; }
+#up-files button.center { border: 2px dashed rgba(37,227,165,.55) !important; border-radius: 14px !important; background: rgba(37,227,165,.045) !important;
+  display: flex !important; flex-direction: column; align-items: center; justify-content: center; gap: 10px; position: relative; transition: background-color .15s, border-color .15s; }
+#up-files button.center:hover, #up-files button.center:focus-visible { background: rgba(37,227,165,.11) !important; border-color: var(--accent) !important; }
+#up-files button.center .wrap { font-size: 0 !important; min-height: 0 !important; height: auto !important; flex: none; display: flex; justify-content: center; }
+#up-files button.center { padding: 18px 16px !important; }
+#up-files button.center .wrap .icon-wrap { width: 46px !important; height: 46px !important; color: var(--accent); }
+#up-files button.center .wrap .or { display: none; }
+#up-files button.center::after { content: "Перетащите файл выписки сюда\\A или нажмите, чтобы выбрать на компьютере"; white-space: pre-line; text-align: center; font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--text); }
 /* HTML-блоки вровень с таблицами и полями: убираем внутренний отступ Gradio */
 .html-container.padding, .html-container { padding: 0 !important; }
 /* карточки */
