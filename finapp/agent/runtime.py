@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import threading
+from pathlib import Path
 import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
@@ -49,9 +50,15 @@ class TokenUsageCounter(BaseCallbackHandler):  # type: ignore[misc]
         return {"calls": self.calls, "input": self.input_tokens, "output": self.output_tokens, "total": self.total_tokens}
 
 
+# Адрес корпоративного контура по умолчанию — тот же, что в ноутбуке агента (GIGACHAT_BASE_URL).
+DEFAULT_BASE_URL = "https://gigachat-ift.sberdevices.delta.sbrf.ru/v1"
+
+
 @dataclass
 class GigaChatSettings:
-    """Подключение к GigaChat. Либо base_url + сертификаты (корпоративный контур), либо credentials (API ключ)."""
+    """Подключение к GigaChat. Либо base_url + сертификаты (корпоративный контур), либо credentials (API ключ).
+
+    Пустой base_url при отсутствии credentials означает корпоративный адрес по умолчанию (DEFAULT_BASE_URL)."""
 
     base_url: str = ""
     cert_file: str = "certs/cert.pem"
@@ -63,8 +70,30 @@ class GigaChatSettings:
     timeout: float = 300.0
 
     @property
+    def effective_base_url(self) -> str:
+        url = self.base_url.strip()
+        if url or self.credentials.strip():
+            return url
+        return DEFAULT_BASE_URL
+
+    @property
+    def uses_certificates(self) -> bool:
+        return self.effective_base_url.lower().startswith(("http://", "https://"))
+
+    def problem(self) -> str | None:
+        """Почему GigaChat нельзя использовать (None — настроен)."""
+        if self.uses_certificates:
+            for label, path in (("сертификата", self.cert_file), ("закрытого ключа", self.key_file)):
+                if not Path(path).is_file():
+                    return f"не найден файл {label}: {path}"
+            return None
+        if self.credentials.strip():
+            return None
+        return "не указан адрес сервера (base_url) и ключ авторизации"
+
+    @property
     def configured(self) -> bool:
-        return bool(self.base_url.strip().lower().startswith(("http://", "https://")) or self.credentials.strip())
+        return self.problem() is None
 
 
 def build_gigachat(settings: GigaChatSettings, callbacks: list | None = None, timeout: float | None = None) -> Any:
@@ -75,8 +104,8 @@ def build_gigachat(settings: GigaChatSettings, callbacks: list | None = None, ti
                   timeout=timeout or settings.timeout, verify_ssl_certs=settings.verify_ssl)
     if callbacks:
         common["callbacks"] = callbacks
-    if settings.base_url.strip().lower().startswith(("http://", "https://")):
-        return GigaChat(base_url=settings.base_url, cert_file=settings.cert_file, key_file=settings.key_file, **common)
+    if settings.uses_certificates:
+        return GigaChat(base_url=settings.effective_base_url, cert_file=settings.cert_file, key_file=settings.key_file, **common)
     if settings.credentials.strip():
         return GigaChat(credentials=settings.credentials, scope=settings.scope, **common)
     raise ValueError("GigaChat не настроен: укажите base_url с сертификатами или credentials.")
@@ -88,8 +117,8 @@ def build_embeddings(settings: GigaChatSettings) -> Any | None:
     except Exception:  # noqa: BLE001
         return None
     kwargs: dict[str, Any] = {"verify_ssl_certs": settings.verify_ssl}
-    if settings.base_url.strip().lower().startswith(("http://", "https://")):
-        kwargs.update(base_url=settings.base_url, cert_file=settings.cert_file, key_file=settings.key_file)
+    if settings.uses_certificates:
+        kwargs.update(base_url=settings.effective_base_url, cert_file=settings.cert_file, key_file=settings.key_file)
     elif settings.credentials.strip():
         kwargs.update(credentials=settings.credentials, scope=settings.scope)
     else:

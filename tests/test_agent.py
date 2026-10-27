@@ -190,3 +190,16 @@ def test_risk_memory_migrates_legacy_schema(tmp_path):
     db.add_risk_event("7700000002", "2024-05-01", "2024-06-01", "новое", "c")
     assert db.compute_current_risk("7700000002")["events_count"] == 3
     assert list(tmp_path.glob("old.db.bak-*"))  # резервная копия создана
+
+
+def test_gigachat_settings_explain_why_not_configured(tmp_path):
+    from finapp.agent.runtime import DEFAULT_BASE_URL, GigaChatSettings
+    empty = GigaChatSettings(cert_file=str(tmp_path / "cert.pem"), key_file=str(tmp_path / "private.key"))
+    assert empty.effective_base_url == DEFAULT_BASE_URL  # пустой адрес -> корпоративный по умолчанию
+    assert not empty.configured and "сертификата" in empty.problem()
+    (tmp_path / "cert.pem").write_text("x")
+    assert "закрытого ключа" in empty.problem()
+    (tmp_path / "private.key").write_text("x")
+    assert empty.configured and empty.problem() is None  # сертификаты на месте — подключено без ручного ввода адреса
+    by_key = GigaChatSettings(credentials="k", cert_file="нет", key_file="нет")
+    assert by_key.configured and not by_key.uses_certificates

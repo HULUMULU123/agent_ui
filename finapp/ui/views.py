@@ -19,19 +19,17 @@ OPS_COLUMNS = ["№", STATUS_COLUMN, "Дата", "Контрагент", "ИНН
                "Основание проверки", "Решение", "Рекомендация"]
 PAGE_SIZES = ["25", "50", "100", "200"]
 
-_STYLE_BY_LABEL = {
-    STATUS_LABELS["disputable"]: "background-color: rgba(255,107,107,.18); color: #ffb0b0; font-weight: 700",
-    STATUS_LABELS["attention"]: "background-color: rgba(245,184,61,.17); color: #f8cf7a; font-weight: 700",
-    STATUS_LABELS["unclassified"]: "background-color: rgba(139,152,169,.16); color: #c0cbd8; font-weight: 600",
-    STATUS_LABELS["typical"]: "background-color: rgba(37,227,165,.14); color: #4cf0b6; font-weight: 600",
-}
+STATUS_MARK = {STATUS_LABELS["disputable"]: "🔴", STATUS_LABELS["attention"]: "🟠", STATUS_LABELS["unclassified"]: "⚪", STATUS_LABELS["typical"]: "🟢"}
+LEVEL_MARK = {LEVEL_LABELS["high"]: "🔴", LEVEL_LABELS["check"]: "🟠", LEVEL_LABELS["low"]: "🟢"}
 
 
-def styled(frame: pd.DataFrame, column: str = STATUS_COLUMN) -> Any:
-    """Таблица с цветом в колонке статуса (pandas Styler понимает gr.Dataframe)."""
-    if frame.empty or column not in frame.columns:
-        return frame
-    return frame.style.map(lambda v: _STYLE_BY_LABEL.get(v, ""), subset=[column])
+def mark_status(label: str) -> str:
+    """Цветной маркер в тексте ячейки вместо pandas Styler: стили на каждую ячейку заметно утяжеляют таблицу Gradio."""
+    return f"{STATUS_MARK.get(label, '')} {label}".strip()
+
+
+def styled(frame: pd.DataFrame, column: str = STATUS_COLUMN) -> pd.DataFrame:
+    return frame
 
 
 @dataclass
@@ -110,19 +108,13 @@ def registry_table(metas: list[dict]) -> pd.DataFrame:
     return pd.DataFrame(rows, columns=REGISTRY_COLUMNS)
 
 
-def registry_styled(frame: pd.DataFrame) -> Any:
+def registry_styled(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return frame
-
-    def color(value: str) -> str:
-        if value.startswith("Анализ завершён"):
-            return _STYLE_BY_LABEL[STATUS_LABELS["typical"]]
-        if value.startswith(("Ошибка", "Остановлен")):
-            return _STYLE_BY_LABEL[STATUS_LABELS["disputable"]]
-        if value.startswith("Требует"):
-            return _STYLE_BY_LABEL[STATUS_LABELS["attention"]]
-        return "background-color: rgba(58,195,255,.13); color: #7fd6ff; font-weight: 600"
-    return frame.style.map(color, subset=["Статус"])
+    marks = (("Анализ завершён", "🟢"), ("Ошибка", "🔴"), ("Остановлен", "🔴"), ("Требует", "🟠"))
+    frame = frame.copy()
+    frame["Статус"] = [next((f"{m} {v}" for key, m in marks if v.startswith(key)), f"🔵 {v}") for v in frame["Статус"]]
+    return frame
 
 
 def meta_by_code(metas: list[dict], code: str) -> dict | None:
@@ -215,8 +207,8 @@ def operations_page(ctx: Context, filters: OperationFilters, page: int, page_siz
     for position, (_, r) in enumerate(chunk.iterrows(), start=page * page_size + 1):
         review = ctx.reviews.get(str(r["idx"]), {})
         rows.append({
-            "№": position, STATUS_COLUMN: r["status_label"], "Дата": fmt_date(r["date"]), "Контрагент": r["cp_name"] or "—",
-            "ИНН": r["cp_inn"] or "—", "Назначение платежа": short_name(r["purpose"], 140),
+            "№": position, STATUS_COLUMN: mark_status(r["status_label"]), "Дата": fmt_date(r["date"]), "Контрагент": r["cp_name"] or "—",
+            "ИНН": r["cp_inn"] or "—", "Назначение платежа": short_name(r["purpose"], 100),
             "Направление": "Списание" if r["direction"] == "убытие" else "Поступление" if r["direction"] == "прибытие" else "—",
             "Сумма, ₽": fmt_int(r["amount_abs"]), "Категория": r["operation_category"], "Основание проверки": r["ground"] or "—",
             "Решение": REVIEW_DECISIONS.get(review.get("decision", ""), "") if review else "",
@@ -272,7 +264,7 @@ def recommendations_page(ctx: Context, scope: str, query: str, page: int, size: 
     rows = []
     for position, (_, r) in enumerate(chunk.iterrows(), start=page * size + 1):
         review = ctx.reviews.get(str(r["idx"]), {})
-        rows.append({"№": position, STATUS_COLUMN: r["status_label"], "Дата": fmt_date(r["date"]), "Контрагент": r["cp_name"] or "—",
+        rows.append({"№": position, STATUS_COLUMN: mark_status(r["status_label"]), "Дата": fmt_date(r["date"]), "Контрагент": r["cp_name"] or "—",
                      "Сумма, ₽": fmt_int(r["amount_abs"]), "Основание проверки": r["ground"] or "—",
                      "Рекомендация (можно править)": effective_recommendation(r.to_dict(), review)})
     edited = sum(1 for r in ctx.reviews.values() if r.get("recommendation"))
@@ -387,12 +379,12 @@ def counterparties_table(ctx: Context, query: str, level: str) -> pd.DataFrame:
         "Статус риска": cp["level"].map(LEVEL_LABELS)}, columns=CP_COLUMNS).reset_index(drop=True)
 
 
-def cp_styled(frame: pd.DataFrame) -> Any:
+def cp_styled(frame: pd.DataFrame) -> pd.DataFrame:
     if frame.empty:
         return frame
-    colors = {LEVEL_LABELS["high"]: _STYLE_BY_LABEL[STATUS_LABELS["disputable"]], LEVEL_LABELS["check"]: _STYLE_BY_LABEL[STATUS_LABELS["attention"]],
-              LEVEL_LABELS["low"]: _STYLE_BY_LABEL[STATUS_LABELS["typical"]]}
-    return frame.style.map(lambda v: colors.get(v, ""), subset=["Статус риска"])
+    frame = frame.copy()
+    frame["Статус риска"] = [f"{LEVEL_MARK.get(v, '')} {v}".strip() for v in frame["Статус риска"]]
+    return frame
 
 
 def counterparty_detail(ctx: Context, inn: str) -> str:
@@ -433,7 +425,7 @@ def report_table(ctx: Context) -> pd.DataFrame:
     rows = []
     for n, (_, r) in enumerate(worked_frame(ctx).iterrows(), start=1):
         review = ctx.reviews.get(str(r["idx"]), {})
-        rows.append({"№": n, STATUS_COLUMN: r["status_label"], "Дата": fmt_date(r["date"]), "Контрагент": r["cp_name"] or "—",
+        rows.append({"№": n, STATUS_COLUMN: mark_status(r["status_label"]), "Дата": fmt_date(r["date"]), "Контрагент": r["cp_name"] or "—",
                      "Назначение платежа": short_name(r["purpose"], 120), "Сумма, ₽": fmt_int(r["amount_abs"]),
                      "Основание проверки": r["ground"] or "—",
                      "Рекомендация": ("✎ " if review.get("recommendation") else "") + short_name(effective_recommendation(r.to_dict(), review), 160),

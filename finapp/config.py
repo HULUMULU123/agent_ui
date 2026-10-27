@@ -53,7 +53,7 @@ class AppSettings:
     @classmethod
     def from_env(cls) -> "AppSettings":
         return cls(
-            base_url=os.getenv("GIGACHAT_BASE_URL", ""),
+            base_url=os.getenv("GIGACHAT_BASE_URL", ""),  # пусто -> корпоративный адрес по умолчанию (см. GigaChatSettings)
             cert_file=os.getenv("GIGACHAT_CERT_FILE", "certs/cert.pem"),
             key_file=os.getenv("GIGACHAT_KEY_FILE", "certs/private.key"),
             verify_ssl=_env_bool("GIGACHAT_VERIFY_SSL", False),

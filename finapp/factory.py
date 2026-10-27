@@ -65,7 +65,7 @@ def check_gigachat(settings: AppSettings) -> tuple[bool, str]:
     """Проверка соединения (кнопка на странице «Настройки»)."""
     gc = settings.gigachat()
     if not gc.configured:
-        return False, "GigaChat не настроен: укажите адрес сервера и сертификаты либо ключ авторизации."
+        return False, f"GigaChat не настроен: {gc.problem()}."
     try:
         client = build_gigachat(gc, timeout=60)
         answer = client.invoke("Ответь 'ok' одним словом")

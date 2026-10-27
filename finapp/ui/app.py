@@ -288,7 +288,7 @@ def build_app() -> gr.Blocks:
                             C.st_test = gr.Button("Проверить соединение с GigaChat")
                         C.st_msg = gr.HTML()
 
-                C.timer = gr.Timer(2.0)
+                C.timer = gr.Timer(2.0, active=False)  # включается, когда есть задачи в работе
 
         # ─────────────────────────── вспомогательные функции ───────────────────────────
         nav_buttons = [C.nav[k] for k, _, _ in NAV]
@@ -303,7 +303,11 @@ def build_app() -> gr.Blocks:
             legal = legal_sources_status()
             on = s.llm_enabled
             pill = f'<span class="pill {"on" if on else "off"}">{"GigaChat подключён" if on else "Режим без GigaChat"}</span>'
-            return (f'<div class="side-status"><b>{MODEL_NAME}</b>{pill}<div style="margin-top:6px">Нормативная база: {"да" if legal["normative"] else "нет"}'
+            why = ""
+            if not on:
+                reason = "выбран режим «без GigaChat» в настройках" if s.mode == "rules" else s.gigachat().problem()
+                why = f'<div class="why">Причина: {R.esc(reason)}</div>'
+            return (f'<div class="side-status"><b>{MODEL_NAME}</b>{pill}{why}<div style="margin-top:6px">Нормативная база: {"да" if legal["normative"] else "нет"}'
                     f'<br>Судебная практика: {"да" if legal["court_practice"] else "нет"}</div></div>')
 
         # ───── реестр ─────
@@ -321,10 +325,11 @@ def build_app() -> gr.Blocks:
 
         def poll(current_aid, sig):  # noqa: ANN001
             new_sig = signature()
-            if new_sig == tuple(sig):
-                return {poll_sig: gr.skip()}
-            out = {poll_sig: new_sig}
             metas = STORE.list()
+            running = gr.Timer(active=any(m["status"] in ACTIVE_STATUSES for m in metas))  # без задач таймер выключается
+            if new_sig == tuple(sig):
+                return {poll_sig: gr.skip(), C.timer: running}
+            out = {poll_sig: new_sig, C.timer: running}
             out[C.reg_jobs] = R.active_jobs_html(metas)
             out[C.reg_recent] = R.recent_uploads_html(metas)
             if new_sig[0] != tuple(sig)[0]:
@@ -395,7 +400,8 @@ def build_app() -> gr.Blocks:
         def settings_status_html(s: AppSettings) -> str:
             legal = legal_sources_status()
             rows = [
-                ("Режим анализа", f'<span class="pill {"on" if s.llm_enabled else "off"}">{"GigaChat-3-Ultra" if s.llm_enabled else "по правилам, без GigaChat"}</span>'),
+                ("Режим анализа", f'<span class="pill {"on" if s.llm_enabled else "off"}">{"GigaChat-3-Ultra" if s.llm_enabled else "по правилам, без GigaChat"}</span>'
+                 + ("" if s.llm_enabled else f' <span class="muted small">Причина: {R.esc("выбран режим «без GigaChat»" if s.mode == "rules" else s.gigachat().problem())}</span>')),
                 ("Нормативная база (FAISS)", "подключена" if legal["normative"] else "не найдена — правовой поиск по нормам не выполняется"),
                 ("Судебная практика (FAISS + SQLite)", "подключена" if legal["court_practice"] else "не найдена — поиск практики не выполняется"),
                 ("Память риска контрагентов", "доступна" if get_risk_db() is not None else "недоступна"),
@@ -565,6 +571,7 @@ def build_app() -> gr.Blocks:
             out = {C.up_msg: msg, poll_sig: ("", "")}
             if accepted:
                 out[C.up_files] = None
+                out[C.timer] = gr.Timer(active=True)
             out.update(registry_updates())
             return out
 
@@ -573,13 +580,14 @@ def build_app() -> gr.Blocks:
             if not demo_file.exists():
                 return {C.up_msg: '<div class="note warn">Демо-выписка не найдена (examples/demo_statement.xlsx).</div>'}
             JOBS.submit(demo_file, "10.10.2025", original_name="demo_statement.xlsx")
-            out = {C.up_msg: '<div class="note">Демо-выписка (учебные данные) поставлена в очередь, дата заявления — 10.10.2025.</div>', poll_sig: ("", "")}
+            out = {C.up_msg: '<div class="note">Демо-выписка (учебные данные) поставлена в очередь, дата заявления — 10.10.2025.</div>', poll_sig: ("", ""),
+                   C.timer: gr.Timer(active=True)}
             out.update(registry_updates())
             return out
 
-        C.up_demo.click(upload_demo, None, [C.up_msg, poll_sig, C.reg_kpis, C.reg_jobs, C.reg_table, C.reg_recent])
-        C.up_btn.click(upload, [C.up_files, C.up_date], [C.up_msg, C.up_files, poll_sig, C.reg_kpis, C.reg_jobs, C.reg_table, C.reg_recent])
-        C.timer.tick(poll, [aid, poll_sig], [poll_sig, C.reg_jobs, C.reg_recent, C.reg_kpis, C.reg_table, C.analysis_dd], show_progress="hidden")
+        C.up_demo.click(upload_demo, None, [C.up_msg, poll_sig, C.timer, C.reg_kpis, C.reg_jobs, C.reg_table, C.reg_recent])
+        C.up_btn.click(upload, [C.up_files, C.up_date], [C.up_msg, C.up_files, poll_sig, C.timer, C.reg_kpis, C.reg_jobs, C.reg_table, C.reg_recent])
+        C.timer.tick(poll, [aid, poll_sig], [poll_sig, C.timer, C.reg_jobs, C.reg_recent, C.reg_kpis, C.reg_table, C.analysis_dd], show_progress="hidden")
 
         # ───── рекомендации ─────
         def rc_refresh(current_aid, scope, query, page_no, size):  # noqa: ANN001
@@ -590,11 +598,14 @@ def build_app() -> gr.Blocks:
 
         rc_outputs = [C.rc_info, C.rc_table, C.rc_page_no]
         rc_inputs = [aid, C.rc_scope, C.rc_q, C.rc_page_no, C.rc_size]
+        # .input / .submit / .blur — только действия пользователя: программная смена значений (при открытии страницы, смене анализа)
+        # не должна запускать лавину запросов, как это делал .change
         for comp in (C.rc_scope, C.rc_size):
-            comp.change(lambda current_aid, scope, query, _p, size: rc_refresh(current_aid, scope, query, 1, size), rc_inputs, rc_outputs,
-                        show_progress="hidden")
-        C.rc_q.change(lambda current_aid, scope, query, _p, size: rc_refresh(current_aid, scope, query, 1, size), rc_inputs, rc_outputs,
-                      show_progress="hidden", trigger_mode="always_last")
+            comp.input(lambda current_aid, scope, query, _p, size: rc_refresh(current_aid, scope, query, 1, size), rc_inputs, rc_outputs,
+                       show_progress="hidden")
+        for event in (C.rc_q.submit, C.rc_q.blur):
+            event(lambda current_aid, scope, query, _p, size: rc_refresh(current_aid, scope, query, 1, size), rc_inputs, rc_outputs,
+                  show_progress="hidden", trigger_mode="always_last")
         C.rc_page_no.submit(rc_refresh, rc_inputs, rc_outputs, show_progress="hidden")
         C.rc_prev.click(lambda current_aid, scope, query, page_no, size: rc_refresh(current_aid, scope, query, max(int(page_no or 1) - 1, 1), size),
                         rc_inputs, rc_outputs, show_progress="hidden")
@@ -622,7 +633,7 @@ def build_app() -> gr.Blocks:
             ctx = context_for(current_aid)
             return V.overview_cards(ctx, mode)["top"] if ctx else ""
 
-        C.ov_top_mode.change(ov_mode_change, [aid, C.ov_top_mode], [C.ov_top], show_progress="hidden")
+        C.ov_top_mode.input(ov_mode_change, [aid, C.ov_top_mode], [C.ov_top], show_progress="hidden")
 
         def cp_refresh(current_aid, mode, query, level):  # noqa: ANN001
             ctx = context_for(current_aid)
@@ -631,9 +642,10 @@ def build_app() -> gr.Blocks:
             return render_counterparties(ctx, mode, query, level)
 
         for comp in (C.cp_top_mode, C.cp_level):
-            comp.change(cp_refresh, [aid, C.cp_top_mode, C.cp_q, C.cp_level], [C.cp_kpis, C.cp_top, C.cp_cat, C.cp_table], show_progress="hidden")
-        C.cp_q.change(cp_refresh, [aid, C.cp_top_mode, C.cp_q, C.cp_level], [C.cp_kpis, C.cp_top, C.cp_cat, C.cp_table],
-                      show_progress="hidden", trigger_mode="always_last")
+            comp.input(cp_refresh, [aid, C.cp_top_mode, C.cp_q, C.cp_level], [C.cp_kpis, C.cp_top, C.cp_cat, C.cp_table], show_progress="hidden")
+        for event in (C.cp_q.submit, C.cp_q.blur):
+            event(cp_refresh, [aid, C.cp_top_mode, C.cp_q, C.cp_level], [C.cp_kpis, C.cp_top, C.cp_cat, C.cp_table],
+                  show_progress="hidden", trigger_mode="always_last")
 
         def cp_select(current_aid, evt: gr.SelectData):  # noqa: ANN001
             ctx = context_for(current_aid)
@@ -665,11 +677,12 @@ def build_app() -> gr.Blocks:
 
         ops_outputs = [C.op_table, C.op_info, C.op_page_no]
         for comp in (C.op_dir, C.op_cat, C.op_status, C.op_ground, C.op_sort, C.op_size):
-            comp.change(lambda current_aid, size, *flt: ops_refresh(current_aid, 1, size, *flt), [aid, C.op_size, *filter_inputs], ops_outputs,
-                        show_progress="hidden")
-        for comp in (C.op_q, C.op_min, C.op_max):
-            comp.change(lambda current_aid, size, *flt: ops_refresh(current_aid, 1, size, *flt), [aid, C.op_size, *filter_inputs], ops_outputs,
-                        show_progress="hidden", trigger_mode="always_last")
+            comp.input(lambda current_aid, size, *flt: ops_refresh(current_aid, 1, size, *flt), [aid, C.op_size, *filter_inputs], ops_outputs,
+                       show_progress="hidden")
+        for comp in (C.op_q, C.op_min, C.op_max):  # текстовые поля: по Enter или при уходе из поля, а не на каждую букву
+            for event in (comp.submit, comp.blur):
+                event(lambda current_aid, size, *flt: ops_refresh(current_aid, 1, size, *flt), [aid, C.op_size, *filter_inputs], ops_outputs,
+                      show_progress="hidden", trigger_mode="always_last")
         C.op_page_no.submit(ops_refresh, [aid, C.op_page_no, C.op_size, *filter_inputs], ops_outputs, show_progress="hidden")
         C.op_prev.click(lambda current_aid, page_no, size, *flt: ops_refresh(current_aid, max(int(page_no or 1) - 1, 1), size, *flt),
                         [aid, C.op_page_no, C.op_size, *filter_inputs], ops_outputs, show_progress="hidden")
@@ -849,7 +862,8 @@ def build_app() -> gr.Blocks:
         def on_load():  # noqa: ANN202
             choices = analysis_choices()
             first = choices[0][1] if choices else None
-            out = {aid: first, C.analysis_dd: gr.update(choices=choices, value=first), poll_sig: signature()}
+            out = {aid: first, C.analysis_dd: gr.update(choices=choices, value=first), poll_sig: signature(),
+                   C.timer: gr.Timer(active=any(m["status"] in ACTIVE_STATUSES for m in STORE.list()))}
             out.update(refresh("registry", first, "", "Все", "Все", "Все", "Все", "", "", "Дата ↑", 1, "25", "count", "count", "", "Все"))
             out.update(settings_values())
             ctx = context_for(first)
@@ -859,5 +873,5 @@ def build_app() -> gr.Blocks:
                 out[C.op_ground] = gr.update(choices=choices_f["ground"], value="Все")
             return out
 
-        demo.load(on_load, None, [aid, C.analysis_dd, poll_sig, *all_page_outputs], show_progress="hidden")
+        demo.load(on_load, None, [aid, C.analysis_dd, poll_sig, C.timer, *all_page_outputs], show_progress="hidden")
     return demo
