@@ -207,3 +207,22 @@ def test_operations_tab_uses_risk_0_1_and_light_html_table(app_modules, tmp_path
     found, _, _, ff = V.operations_rows(ctx, V.make_filters("займ", "Все", "Все"), 0)
     assert found and ff["purpose"].str.lower().str.contains("займ").all()
     assert "<script" not in R.ops_table_html([{**rows[0], "purpose": "<script>x</script>"}])  # экранирование
+
+
+def test_export_file_name_is_ascii(tmp_path):
+    import pandas as pd
+    from finapp.export import export_to_temp
+    df = pd.DataFrame({"idx": ["1"], "date": [pd.Timestamp("2025-01-01")], "debit_inn": ["1"], "credit_inn": ["2"], "debit_name": ["a"], "credit_name": ["b"],
+                       "direction": ["убытие"], "amount": [-1.0], "amount_abs": [1.0], "purpose": ["x"], "period": ["p"], "operation_type": ["t"],
+                       "risk_level": [0], "status": ["typical"], "status_label": ["Риска нет"], "analysis_source": ["rules"], "source_label": ["s"],
+                       "cp_inn": ["2"], "cp_name": ["b"], "operation_category": ["Прочее"], "recommendation": ["r"], "route_title": [""], "ground": [""],
+                       "check_route": ["none"], "manual": [False], "type_unknown": [False], "propagation_confidence": [None],
+                       "matched_representative_idx": [None], "used_tools": [[]], "operation_type_need_review": [False]})
+    path = export_to_temp(df, "операции_ООО «Тест» 2025")
+    assert path.endswith(".xlsx") and path.rsplit("/", 1)[-1].isascii()
+
+
+def test_default_llm_workers_is_two():
+    from finapp.agent.common import AgentConfig
+    from finapp.config import AppSettings
+    assert AgentConfig().llm_max_workers == 2 and AppSettings().llm_max_workers == 2

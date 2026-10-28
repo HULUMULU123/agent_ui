@@ -45,7 +45,7 @@ class AppSettings:
     # режим: "auto" — GigaChat, если настроен; "rules" — без LLM (предварительная оценка по правилам)
     mode: str = "auto"
     # параметры анализа
-    llm_max_workers: int = 8
+    llm_max_workers: int = 2
     max_operations_per_llm_batch: int = 10
     rule_skip_older_than_years: int = 3
     default_filing_date: str = ""

@@ -204,6 +204,7 @@ def export_workbook(df: pd.DataFrame, path: Path, *, reviews: dict[str, dict] | 
 
 
 def export_to_temp(df: pd.DataFrame, name: str, **kwargs: Any) -> str:
-    safe = "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in name)[:80] or "report"
+    # имя файла только из ASCII: кириллица в Content-Disposition за прокси и в некоторых браузерах ломает сохранение
+    safe = "".join(ch if (ch.isascii() and ch.isalnum()) or ch in "-_." else "_" for ch in name)[:80].strip("_") or "report"
     directory = Path(tempfile.mkdtemp(prefix="finapp_export_"))
     return str(export_workbook(df, directory / f"{safe}.xlsx", **kwargs))

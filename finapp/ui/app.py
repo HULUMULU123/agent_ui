@@ -135,12 +135,12 @@ def build_app() -> gr.Blocks:
                             C.reg_excel = gr.Button("Скачать Excel", min_width=140)
                             C.reg_stop = gr.Button("Остановить", min_width=120)
                             C.reg_delete = gr.Button("Удалить", variant="stop", min_width=120)
+                        C.reg_file = gr.DownloadButton("⬇ Скачать готовый файл Excel", visible=False, variant="primary", min_width=260, scale=0)
                         with gr.Row(visible=False) as C.reg_confirm:
                             gr.HTML('<div class="note warn">Анализ и загруженный файл будут удалены без возможности восстановления. '
                                     'Записи памяти риска контрагентов (история прошлых дел) сохранятся.</div>')
                             C.reg_yes = gr.Button("Да, удалить", variant="stop")
                             C.reg_no = gr.Button("Отмена")
-                        C.reg_file = gr.File(label="Файл для скачивания", visible=False)
                         C.reg_recent = gr.HTML()
 
                     # ═══════ Обзор ═══════
@@ -169,7 +169,8 @@ def build_app() -> gr.Blocks:
                             C.op_q = gr.Textbox(label="Поиск (нажмите Enter)", placeholder="контрагент, ИНН, назначение…", scale=3, min_width=220)
                             C.op_risk = gr.Radio(V.RISK_CHOICES, value="Все", label="Риск", elem_classes=["seg"], scale=2, min_width=200)
                             C.op_dir = gr.Radio(V.DIRECTION_FILTERS, value="Все", label="Направление", elem_classes=["seg"], scale=3, min_width=260)
-                            C.op_export = gr.Button("Выгрузить в Excel", variant="primary", min_width=190, scale=0)
+                            C.op_export = gr.Button("Выгрузить в Excel", variant="secondary", min_width=190, scale=0)
+                            C.op_file = gr.DownloadButton("⬇ Скачать готовый файл Excel", visible=False, variant="primary", min_width=260, scale=0)
                         C.op_html = gr.HTML()
                         with gr.Row(elem_classes=["pager"]):
                             C.op_info = gr.HTML()
@@ -177,7 +178,6 @@ def build_app() -> gr.Blocks:
                             C.op_next = gr.Button("Вперёд →", min_width=100, scale=0)
                         C.op_pick = gr.Textbox(visible="hidden", elem_id="op-pick")      # сюда скрипт кладёт номер выбранной строки
                         C.op_pick_btn = gr.Button("open", visible="hidden", elem_id="op-pick-btn")
-                        C.op_file = gr.File(label="Файл выгрузки", visible=False)
 
                     # ═══════ Карточка операции ═══════
                     with gr.Tab("detail", id="detail"):
@@ -259,7 +259,7 @@ def build_app() -> gr.Blocks:
                             C.rp_full = gr.Button("Вся выписка (Excel)", variant="primary")
                             C.rp_marked = gr.Button("Только отмеченные для проверки")
                             C.rp_worked = gr.Button("Только с решением или правкой сотрудника")
-                        C.rp_file = gr.File(label="Файл отчёта", visible=False)
+                        C.rp_file = gr.DownloadButton("⬇ Скачать готовый файл Excel", visible=False, variant="primary", min_width=260, scale=0)
                         C.rp_msg = gr.HTML()
                         C.rp_table = gr.Dataframe(value=pd.DataFrame(columns=V.REPORT_COLUMNS), interactive=False, wrap=True, max_height=420,
                                                   label="Работа сотрудника по операциям (нажмите строку, чтобы открыть карточку)",
@@ -289,8 +289,8 @@ def build_app() -> gr.Blocks:
                         with gr.Group(elem_classes=["ctrl-card"]):
                             gr.HTML('<h3>Параметры анализа</h3>')
                             with gr.Row():
-                                C.st_workers = gr.Number(label="Параллельных запросов к GigaChat", value=8, precision=0, minimum=1, maximum=32,
-                                                         info="Снизьте при ошибках 429/503.")
+                                C.st_workers = gr.Number(label="Параллельных запросов к GigaChat", value=2, precision=0, minimum=1, maximum=32,
+                                                         info="По умолчанию 2: надёжнее при ограничениях сервера. Увеличивайте, если ошибок 429/503 нет.")
                                 C.st_batch = gr.Number(label="Операций в одном запросе", value=10, precision=0, minimum=1, maximum=30)
                                 C.st_skip = gr.Number(label="Не анализировать операции старше (лет до заявления)", value=3, precision=0, minimum=0, maximum=10,
                                                       info="Вне периодов подозрительности: риск 0 по правилу. 0 — анализировать все.")
@@ -503,7 +503,7 @@ def build_app() -> gr.Blocks:
             if meta is None or meta["status"] != "done":
                 return gr.update(visible=False), '<div class="note warn">Выберите завершённый анализ в таблице.</div>'
             ctx = context_for(meta["id"])
-            path = export_to_temp(ctx.df, f"{meta.get('org_name') or meta['filename']}_{meta['id'][-6:]}", reviews=ctx.reviews, risk_db=ctx.risk_db)
+            path = export_to_temp(ctx.df, f"statement_{meta['id'][-6:]}", reviews=ctx.reviews, risk_db=ctx.risk_db)
             return gr.update(value=path, visible=True), ""
 
         C.reg_excel.click(reg_excel, [reg_code], [C.reg_file, C.reg_sel_info])
@@ -693,11 +693,11 @@ def build_app() -> gr.Blocks:
             if ctx is None:
                 return gr.update(visible=False)
             filtered = V.filtered_operations(ctx, V.make_filters(*flt))
-            path = export_to_temp(ctx.df, f"операции_{ctx.meta['id'][-6:]}", reviews=ctx.reviews, risk_db=ctx.risk_db,
+            path = export_to_temp(ctx.df, f"operations_{ctx.meta['id'][-6:]}", reviews=ctx.reviews, risk_db=ctx.risk_db,
                                   only_idx=set(filtered["idx"].astype(str)))
             return gr.update(value=path, visible=True)
 
-        C.op_export.click(ops_export, [aid, *filter_inputs], [C.op_file])
+        C.op_export.click(ops_export, [aid, *filter_inputs], [C.op_file], show_progress="minimal")
 
         # ───── карточка операции ─────
         detail_outputs = [aid, sel_idx, pages, C.period, *nav_buttons, C.dt_head, C.dt_info, C.dt_ground, C.dt_docs, C.dt_related, C.dt_checks,
@@ -812,7 +812,7 @@ def build_app() -> gr.Blocks:
             values = dict(mode=mode, base_url=(base_url or "").strip(), cert_file=(cert or "").strip() or "certs/cert.pem",
                           key_file=(key or "").strip() or "certs/private.key", verify_ssl=bool(verify),
                           credentials=(cred or "").strip() or current.credentials, scope=scope or "GIGACHAT_API_CORP",
-                          llm_max_workers=int(workers or 8), max_operations_per_llm_batch=int(batch or 10),
+                          llm_max_workers=int(workers or 2), max_operations_per_llm_batch=int(batch or 10),
                           rule_skip_older_than_years=int(skip or 0), default_filing_date=(default_date or "").strip())
             return values
 

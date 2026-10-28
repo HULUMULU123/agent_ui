@@ -31,7 +31,7 @@ class AgentConfig:
     """Параметры одного прогона (CONFIG ноутбука agent_v4_gc3_no_chains)."""
 
     court_filing_date: date = field(default_factory=date.today)
-    llm_max_workers: int = 8
+    llm_max_workers: int = 2
     min_abs_amount_for_llm: float = 0
     rule_skip_older_than_years: int | None = 3
     cluster_homogeneity_threshold: float | None = None
