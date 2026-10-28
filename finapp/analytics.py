@@ -253,13 +253,18 @@ SORTS = {
 }
 
 
-def apply_filters(df: pd.DataFrame, f: OperationFilters) -> pd.DataFrame:
+def apply_filters(df: pd.DataFrame, f: OperationFilters, presorted_by_date: bool = False) -> pd.DataFrame:
+    """Фильтры и сортировка. df — полная таблица или лёгкое представление (ui.views.Context.view): в нём есть готовое
+    поле поиска _hay и порядок по дате (presorted_by_date=True), поэтому на больших выписках не копируется и не сортируется всё."""
     out = df
     query = (f.query or "").strip().lower()
     if query:
-        haystack = (out["cp_name"].fillna("") + " " + out["cp_inn"].fillna("") + " " + out["purpose"].fillna("") + " "
-                    + out["operation_type"].fillna("")).str.lower()
-        out = out[haystack.str.contains(re.escape(query), regex=True)]
+        if "_hay" in out.columns:
+            haystack = out["_hay"]
+        else:
+            haystack = (out["cp_name"].fillna("") + " " + out["cp_inn"].fillna("") + " " + out["purpose"].fillna("") + " "
+                        + out["operation_type"].fillna("")).str.lower()
+        out = out[haystack.str.contains(query, regex=False)]
     if f.direction in ("убытие", "прибытие"):
         out = out[out["direction"] == f.direction]
     if f.category not in ("Все", "", None):
@@ -274,12 +279,10 @@ def apply_filters(df: pd.DataFrame, f: OperationFilters) -> pd.DataFrame:
         out = out[out["amount_abs"] >= float(f.amount_min)]
     if f.amount_max not in (None, ""):
         out = out[out["amount_abs"] <= float(f.amount_max)]
-    dates = pd.to_datetime(out["date"], errors="coerce")
     if f.date_from:
-        out = out[dates >= pd.to_datetime(f.date_from, dayfirst=True, errors="coerce")]
-        dates = pd.to_datetime(out["date"], errors="coerce")
+        out = out[pd.to_datetime(out["date"], errors="coerce") >= pd.to_datetime(f.date_from, dayfirst=True, errors="coerce")]
     if f.date_to:
-        out = out[dates <= pd.to_datetime(f.date_to, dayfirst=True, errors="coerce")]
+        out = out[pd.to_datetime(out["date"], errors="coerce") <= pd.to_datetime(f.date_to, dayfirst=True, errors="coerce")]
     if f.only_marked:
         out = out[out["status"].isin(["disputable", "attention"])]
     column, ascending = SORTS.get(f.sort, SORTS["Дата ↑"])
@@ -287,6 +290,8 @@ def apply_filters(df: pd.DataFrame, f: OperationFilters) -> pd.DataFrame:
         order = {s: i for i, s in enumerate(STATUS_ORDER)}
         out = out.assign(_priority=out["status"].map(order)).sort_values(["_priority", "amount_abs"], ascending=[True, False],
                                                                          kind="mergesort").drop(columns="_priority")
+    elif column == "date" and ascending and presorted_by_date:
+        pass  # порядок уже по дате
     else:
         out = out.sort_values(column, ascending=ascending, kind="mergesort", na_position="last")
     return out

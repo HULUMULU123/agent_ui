@@ -32,6 +32,10 @@ def styled(frame: pd.DataFrame, column: str = STATUS_COLUMN) -> pd.DataFrame:
     return frame
 
 
+VIEW_COLUMNS = ["idx", "date", "status", "status_label", "cp_name", "cp_inn", "purpose", "direction", "amount_abs", "operation_category",
+                "ground", "route_title", "operation_type", "risk_level"]
+
+
 @dataclass
 class Context:
     """Всё, что нужно страницам: результат анализа + решения сотрудника."""
@@ -47,6 +51,21 @@ class Context:
     @property
     def meta(self) -> dict:
         return self.bundle.meta
+
+    @property
+    def view(self) -> pd.DataFrame:
+        """Лёгкая копия для списков и фильтров: только нужные колонки, готовое поле поиска, порядок по дате.
+        Считается один раз на анализ — тяжёлые колонки (списки, длинные тексты) в таблицы не попадают."""
+        cached = self.bundle.extras.get("_view")
+        if cached is None:
+            df = self.df
+            keep = [c for c in VIEW_COLUMNS if c in df.columns]
+            cached = df[keep].copy()
+            cached["_hay"] = (df["cp_name"].fillna("") + " " + df["cp_inn"].fillna("") + " " + df["purpose"].fillna("") + " "
+                              + df["operation_type"].fillna("")).str.lower()
+            cached = cached.sort_values("date", kind="mergesort", na_position="last")
+            self.bundle.extras["_view"] = cached
+        return cached
 
     @property
     def cp_table(self) -> pd.DataFrame:
@@ -198,7 +217,7 @@ def make_filters(query: str, direction: str, category: str, status: str, ground:
 
 def operations_page(ctx: Context, filters: OperationFilters, page: int, page_size: int) -> tuple[pd.DataFrame, str, int, pd.DataFrame]:
     """-> (таблица текущей страницы, строка «показано», число страниц, отфильтрованные операции)."""
-    filtered = apply_filters(ctx.df, filters)
+    filtered = apply_filters(ctx.view, filters, presorted_by_date=True)
     total = len(filtered)
     pages = max(1, -(-total // page_size))
     page = min(max(page, 0), pages - 1)
@@ -239,19 +258,19 @@ REC_SIZES = ["15", "30", "50"]
 
 
 def recommendations_filtered(ctx: Context, scope: str, query: str) -> pd.DataFrame:
-    df = ctx.df
+    """Лёгкое представление (индекс = индекс полной таблицы), отсортированное по приоритету и сумме."""
+    df = ctx.view
     if scope == "Только потенциально оспоримые":
         df = df[df["status"] == "disputable"]
     elif scope == "Только требуют проверки":
         df = df[df["status"] == "attention"]
     elif scope == "Только с правками":
-        df = df[df["idx"].astype(str).isin([i for i, r in ctx.reviews.items() if r.get("recommendation")])]
+        df = df[df["idx"].isin([i for i, r in ctx.reviews.items() if r.get("recommendation")])]
     elif scope != "Все операции":
         df = df[df["status"].isin(["disputable", "attention"])]
     query = (query or "").strip().lower()
     if query:
-        hay = (df["cp_name"].fillna("") + " " + df["cp_inn"].fillna("") + " " + df["purpose"].fillna("")).str.lower()
-        df = df[hay.str.contains(query, regex=False)]
+        df = df[df["_hay"].str.contains(query, regex=False)]
     order = {s: i for i, s in enumerate(STATUS_ORDER)}
     return df.assign(_p=df["status"].map(order)).sort_values(["_p", "amount_abs"], ascending=[True, False], kind="mergesort").drop(columns="_p")
 
@@ -261,12 +280,13 @@ def recommendations_page(ctx: Context, scope: str, query: str, page: int, size: 
     pages = max(1, -(-len(filtered) // size))
     page = min(max(page, 0), pages - 1)
     chunk = filtered.iloc[page * size:(page + 1) * size]
+    full = ctx.df.loc[chunk.index]  # полные строки (текст рекомендации) — только для показанной страницы
     rows = []
-    for position, (_, r) in enumerate(chunk.iterrows(), start=page * size + 1):
+    for position, ((_, r), (_, fr)) in enumerate(zip(chunk.iterrows(), full.iterrows()), start=page * size + 1):
         review = ctx.reviews.get(str(r["idx"]), {})
         rows.append({"№": position, STATUS_COLUMN: mark_status(r["status_label"]), "Дата": fmt_date(r["date"]), "Контрагент": r["cp_name"] or "—",
                      "Сумма, ₽": fmt_int(r["amount_abs"]), "Основание проверки": r["ground"] or "—",
-                     "Рекомендация (можно править)": effective_recommendation(r.to_dict(), review)})
+                     "Рекомендация (можно править)": effective_recommendation(fr.to_dict(), review)})
     edited = sum(1 for r in ctx.reviews.values() if r.get("recommendation"))
     info = (f"Показано {fmt_int(len(chunk))} из {fmt_int(len(filtered))} операций · страница {page + 1} из {pages} · "
             f"изменено сотрудником: {fmt_int(edited)}")
@@ -285,8 +305,9 @@ def save_recommendation_edits(ctx: Context, scope: str, query: str, page: int, s
             continue
         if not 1 <= position <= len(filtered):
             continue
-        source = filtered.iloc[position - 1]
-        idx = str(source["idx"])
+        source_view = filtered.iloc[position - 1]
+        source = ctx.df.loc[source_view.name]
+        idx = str(source_view["idx"])
         current = effective_recommendation(source.to_dict(), ctx.reviews.get(idx))
         new = "" if pd.isna(row["Рекомендация (можно править)"]) else str(row["Рекомендация (можно править)"])
         if new.strip() == current.strip():

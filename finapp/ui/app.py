@@ -157,8 +157,9 @@ def build_app() -> gr.Blocks:
                                 C.op_size = gr.Dropdown(V.PAGE_SIZES, value="25", label="На странице", scale=1, min_width=110)
                                 C.op_reset = gr.Button("Сбросить", min_width=110, scale=0)
                                 C.op_export = gr.Button("Выгрузить в Excel", variant="primary", min_width=190, scale=0)
-                        C.op_table = gr.Dataframe(value=pd.DataFrame(columns=V.OPS_COLUMNS), interactive=False, wrap=True, max_height=620,
-                                                  label="Операции", column_widths=[46, 165, 92, 190, 108, 270, 104, 104, 170, 118, 130, 110])
+                        C.op_table = gr.Dataframe(value=pd.DataFrame(columns=V.OPS_COLUMNS), interactive=False, wrap=False, max_height=620,
+                                                  label="Операции", column_widths=[46, 165, 92, 190, 108, 270, 104, 104, 170, 118, 130, 110],
+                                                  max_chars=90)
                         with gr.Row(elem_classes=["pager"]):
                             C.op_info = gr.HTML()
                             C.op_prev = gr.Button("← Назад", min_width=100, scale=0)
