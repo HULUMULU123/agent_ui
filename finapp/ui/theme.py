@@ -91,6 +91,17 @@ h3 { font-size: 15px; font-weight: 700; margin: 0; } h4 { font-size: 13px; color
 #up-files button.center .wrap .icon-wrap { width: 46px !important; height: 46px !important; color: var(--accent); }
 #up-files button.center .wrap .or { display: none; }
 #up-files button.center::after { content: "Перетащите файл выписки сюда\\A или нажмите, чтобы выбрать на компьютере"; white-space: pre-line; text-align: center; font-size: 15px; font-weight: 600; line-height: 1.5; color: var(--text); }
+/* таблица операций: обычный HTML, лёгкая отрисовка */
+.ops-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 12px; background: rgba(10,24,34,.6); }
+table.ops { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 760px; }
+table.ops th { text-align: left; color: var(--muted); font-weight: 700; padding: 10px 10px; background: #0c2130; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.ops td { padding: 8px 10px; border-bottom: 1px solid rgba(255,255,255,.05); vertical-align: middle; }
+table.ops tr[data-n] { cursor: pointer; } table.ops tbody tr:hover, table.ops tbody tr:focus-visible { background: rgba(37,227,165,.08); outline: none; }
+table.ops .n { color: var(--muted); width: 48px; } table.ops .nw { white-space: nowrap; } table.ops .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.ops .cp { max-width: 220px; } table.ops .pur { max-width: 420px; } table.ops .ot { max-width: 200px; color: #b8cad5; }
+table.ops .cp, table.ops .pur, table.ops .ot { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+table.ops .rk { text-align: center; font-weight: 800; font-size: 15px; width: 84px; }
+table.ops .r1 { color: #ff9a9a; background: rgba(255,107,107,.16); } table.ops .r0 { color: #4cf0b6; }
 /* ряды карточек одной высоты и без «раскрытия всех сразу» */
 .eq-row { align-items: stretch !important; } .eq-row > .column { display: flex; flex-direction: column; } .eq-row .block { flex: 1; }
 .eq-row .html-container, .eq-row .prose { height: 100%; } .eq-row .card { height: 100%; box-sizing: border-box; }

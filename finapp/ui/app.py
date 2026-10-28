@@ -11,7 +11,7 @@ import gradio as gr
 import pandas as pd
 
 from ..agent.common import MODEL_NAME, parse_filing_date
-from ..analytics import SORTS, STATUS_LABELS
+from ..analytics import refresh_status
 from ..config import DATA_DIR, SETTINGS, AppSettings
 from ..export import export_to_temp
 from ..factory import check_gigachat, get_risk_db, legal_sources_status
@@ -29,11 +29,28 @@ NAV = [("registry", "Анализы выписок", "file"), ("overview", "Об
        ("reports", "Отчёты", "report"), ("settings", "Настройки", "gear")]
 NAV_HIGHLIGHT = {"detail": "operations"}
 DECISION_CHOICES = [(label, key) for key, label in REVIEW_DECISIONS.items()]
-DIRECTION_CHOICES = ["Все", "Списание", "Поступление"]
-STATUS_CHOICES = ["Все", *STATUS_LABELS.values()]
-SORT_CHOICES = list(SORTS)
 TOP_MODES = [("По количеству операций", "count"), ("По сумме оборота", "turnover")]
 NO_ANALYSIS = "Нет данных: выберите завершённый анализ в списке сверху или загрузите выписку на странице «Анализы выписок»."
+
+
+# Клик по строке HTML-таблицы операций -> скрытое поле Gradio (#op-pick) и скрытая кнопка (#op-pick-btn).
+HEAD = """<script>
+(function () {
+  function pick(n) {
+    var box = document.querySelector('#op-pick textarea, #op-pick input'), btn = document.querySelector('#op-pick-btn');
+    if (!box || !btn) return;
+    var proto = box.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, 'value').set.call(box, n + ':' + Date.now());
+    box.dispatchEvent(new Event('input', {bubbles: true}));
+    setTimeout(function () { btn.click(); }, 30);
+  }
+  document.addEventListener('click', function (e) { var tr = e.target.closest && e.target.closest('tr[data-n]'); if (tr) pick(tr.dataset.n); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key !== 'Enter') return;
+    var tr = e.target.closest && e.target.closest('tr[data-n]'); if (tr) pick(tr.dataset.n);
+  });
+})();
+</script>"""
 
 
 def context_for(aid: str | None) -> V.Context | None:
@@ -42,6 +59,9 @@ def context_for(aid: str | None) -> V.Context | None:
     bundle = STORE.load(aid)
     if bundle is None:
         return None
+    if not bundle.extras.get("_status_v2"):  # анализы, сохранённые прежней версией (четыре статуса), приводим к риску 0/1
+        refresh_status(bundle.df)
+        bundle.extras["_status_v2"] = True
     return V.Context(bundle=bundle, reviews=STORE.load_reviews(aid), risk_db=get_risk_db())
 
 
@@ -56,12 +76,13 @@ def empty(title: str = "Нет данных", text: str = NO_ANALYSIS) -> str:
 def build_app() -> gr.Blocks:
     STORE.mark_interrupted()
     C = SimpleNamespace()
-    with gr.Blocks(title="Банкротный анализ", theme=THEME, css=CSS, fill_width=True, analytics_enabled=False) as demo:
+    with gr.Blocks(title="Банкротный анализ", theme=THEME, css=CSS, head=HEAD, fill_width=True, analytics_enabled=False) as demo:
         aid = gr.State(None)
         sel_idx = gr.State(None)
         reg_code = gr.State(None)
         cp_inn = gr.State(None)
         poll_sig = gr.State(("", ""))
+        op_page = gr.State(0)
 
         with gr.Row(elem_id="shell"):
             # ───── боковая панель ─────
@@ -142,30 +163,20 @@ def build_app() -> gr.Blocks:
 
                     # ═══════ Операции ═══════
                     with gr.Tab("operations", id="operations"):
-                        gr.HTML(R.page_header("Операции", "Все операции выписки с оценкой агента: отфильтруйте, откройте карточку, поправьте рекомендацию и выгрузите в Excel"))
-                        with gr.Group(elem_classes=["ctrl-card"]):
-                            with gr.Row(elem_classes=["filters"]):
-                                C.op_q = gr.Textbox(label="Поиск", placeholder="контрагент, ИНН, назначение…", scale=3, min_width=240)
-                                C.op_dir = gr.Dropdown(DIRECTION_CHOICES, value="Все", label="Направление", scale=1, min_width=140)
-                                C.op_cat = gr.Dropdown(["Все"], value="Все", label="Категория", scale=2, min_width=200)
-                                C.op_status = gr.Dropdown(STATUS_CHOICES, value="Все", label="Статус", scale=2, min_width=190)
-                                C.op_ground = gr.Dropdown(["Все"], value="Все", label="Основание проверки", scale=2, min_width=200)
-                            with gr.Row(elem_classes=["filters"]):
-                                C.op_min = gr.Textbox(label="Сумма от, ₽", scale=1, min_width=130)
-                                C.op_max = gr.Textbox(label="Сумма до, ₽", scale=1, min_width=130)
-                                C.op_sort = gr.Dropdown(SORT_CHOICES, value="Дата ↑", label="Сортировка", scale=1, min_width=150)
-                                C.op_size = gr.Dropdown(V.PAGE_SIZES, value="25", label="На странице", scale=1, min_width=110)
-                                C.op_reset = gr.Button("Сбросить", min_width=110, scale=0)
-                                C.op_export = gr.Button("Выгрузить в Excel", variant="primary", min_width=190, scale=0)
-                        C.op_table = gr.Dataframe(value=pd.DataFrame(columns=V.OPS_COLUMNS), interactive=False, wrap=False, max_height=620,
-                                                  label="Операции", column_widths=[46, 165, 92, 190, 108, 270, 104, 104, 170, 118, 130, 110],
-                                                  max_chars=90)
+                        gr.HTML(R.page_header("Операции", "Риск 1 — операция требует проверки, риск 0 — риска нет. Сначала идут операции с риском 1. "
+                                                          "Нажмите на строку, чтобы открыть карточку."))
+                        with gr.Row(elem_classes=["filters"]):
+                            C.op_q = gr.Textbox(label="Поиск (нажмите Enter)", placeholder="контрагент, ИНН, назначение…", scale=3, min_width=220)
+                            C.op_risk = gr.Radio(V.RISK_CHOICES, value="Все", label="Риск", elem_classes=["seg"], scale=2, min_width=200)
+                            C.op_dir = gr.Radio(V.DIRECTION_FILTERS, value="Все", label="Направление", elem_classes=["seg"], scale=3, min_width=260)
+                            C.op_export = gr.Button("Выгрузить в Excel", variant="primary", min_width=190, scale=0)
+                        C.op_html = gr.HTML()
                         with gr.Row(elem_classes=["pager"]):
                             C.op_info = gr.HTML()
                             C.op_prev = gr.Button("← Назад", min_width=100, scale=0)
-                            C.op_page_no = gr.Number(value=1, precision=0, label="Страница", show_label=False, container=False, minimum=1, scale=0, min_width=80)
                             C.op_next = gr.Button("Вперёд →", min_width=100, scale=0)
-                        gr.HTML('<p class="muted small">Нажмите на строку, чтобы открыть карточку операции с основанием проверки и вопросами для сотрудника.</p>')
+                        C.op_pick = gr.Textbox(visible="hidden", elem_id="op-pick")      # сюда скрипт кладёт номер выбранной строки
+                        C.op_pick_btn = gr.Button("open", visible="hidden", elem_id="op-pick-btn")
                         C.op_file = gr.File(label="Файл выгрузки", visible=False)
 
                     # ═══════ Карточка операции ═══════
@@ -293,7 +304,7 @@ def build_app() -> gr.Blocks:
 
         # ─────────────────────────── вспомогательные функции ───────────────────────────
         nav_buttons = [C.nav[k] for k, _, _ in NAV]
-        filter_inputs = [C.op_q, C.op_dir, C.op_cat, C.op_status, C.op_ground, C.op_min, C.op_max, C.op_sort]
+        filter_inputs = [C.op_q, C.op_risk, C.op_dir]
 
         def nav_state(active: str) -> dict:
             highlighted = NAV_HIGHLIGHT.get(active, active)
@@ -347,7 +358,7 @@ def build_app() -> gr.Blocks:
             if page == "overview":
                 return {C.ov_head: blank, C.ov_kpis: "", C.ov_cash: "", C.ov_month: "", C.ov_cat: "", C.ov_dist: "", C.ov_top: ""}
             if page == "operations":
-                return {C.op_table: pd.DataFrame(columns=V.OPS_COLUMNS), C.op_info: ""}
+                return {C.op_html: blank, C.op_info: ""}
             if page == "grounds":
                 return {C.gr_cards: blank}
             if page == "reports":
@@ -363,17 +374,10 @@ def build_app() -> gr.Blocks:
             return {C.ov_head: V.overview_head(ctx), C.ov_kpis: V.overview_kpis(ctx), C.ov_cash: cards["cash"], C.ov_month: cards["month"],
                     C.ov_cat: cards["cat"], C.ov_dist: cards["dist"], C.ov_top: cards["top"]}
 
-        def render_operations(ctx: V.Context, page: int, size: int, *flt: Any, reset_choices: bool = False) -> dict:
-            filters = V.make_filters(*flt)
-            table, info, pages_total, _ = V.operations_page(ctx, filters, page, size)
-            real_page = min(max(page, 0), pages_total - 1)
-            out = {C.op_table: V.styled(table) if len(table) else table, C.op_info: f'<div class="pager-info">{R.esc(info)}</div>',
-                   C.op_page_no: real_page + 1}
-            if reset_choices:
-                choices = V.filter_choices(ctx)
-                out[C.op_cat] = gr.update(choices=choices["category"], value="Все")
-                out[C.op_ground] = gr.update(choices=choices["ground"], value="Все")
-            return out
+        def render_operations(ctx: V.Context, page: int, *flt: Any) -> dict:
+            rows, info, pages_total, _ = V.operations_rows(ctx, V.make_filters(*flt), page)
+            return {C.op_html: R.ops_table_html(rows), C.op_info: f'<div class="pager-info">{R.esc(info)}</div>',
+                    op_page: min(max(page, 0), pages_total - 1)}
 
         def render_recs(ctx: V.Context, scope: str, query: str, page: int, size: int) -> dict:
             table, info, pages_total = V.recommendations_page(ctx, scope, query, page, size)
@@ -412,8 +416,8 @@ def build_app() -> gr.Blocks:
             return R.card("Состояние", body, "check")
 
         def refresh(page: str, current_aid, *rest):  # noqa: ANN001, ANN002
-            """Полная перерисовка страницы page. rest = фильтры операций, страница, размер, режимы топа, фильтры контрагентов."""
-            (q, d, cat, st, gnd, mn, mx, srt, page_no, size, ov_mode, cp_mode, cq, clevel) = rest
+            """Полная перерисовка страницы page. rest = фильтры операций (3), страница, режимы топа, фильтры контрагентов."""
+            (q, risk, d, page_no, ov_mode, cp_mode, cq, clevel) = rest
             out: dict = nav_state(page)
             out[pages] = gr.Tabs(selected=page)
             ctx = context_for(current_aid)
@@ -426,7 +430,7 @@ def build_app() -> gr.Blocks:
             elif page == "overview":
                 out.update(render_overview(ctx, ov_mode))
             elif page == "operations":
-                out.update(render_operations(ctx, max(int(page_no or 1) - 1, 0), int(size), q, d, cat, st, gnd, mn, mx, srt))
+                out.update(render_operations(ctx, int(page_no or 0), q, risk, d))
             elif page == "grounds":
                 out[C.gr_cards] = V.grounds_block(ctx)
             elif page == "reports":
@@ -439,12 +443,12 @@ def build_app() -> gr.Blocks:
             out[C.period] = V.period_html(ctx.meta if ctx else None)
             return out
 
-        page_inputs = [aid, *filter_inputs, C.op_page_no, C.op_size, C.ov_top_mode, C.cp_top_mode, C.cp_q, C.cp_level]
+        page_inputs = [aid, *filter_inputs, op_page, C.ov_top_mode, C.cp_top_mode, C.cp_q, C.cp_level]
         all_page_outputs = [
             pages, C.period, C.side_status, *nav_buttons,
             C.reg_kpis, C.reg_jobs, C.reg_table, C.reg_recent, C.up_date,
             C.ov_head, C.ov_kpis, C.ov_cash, C.ov_month, C.ov_cat, C.ov_dist, C.ov_top,
-            C.op_table, C.op_info, C.op_page_no, C.op_cat, C.op_ground,
+            C.op_html, C.op_info, op_page,
             C.rc_info, C.rc_table, C.rc_page_no, C.rc_scope, C.rc_q, C.rc_size,
             C.cp_kpis, C.cp_top, C.cp_cat, C.cp_table, C.cp_detail, C.gr_cards, C.rp_kpis, C.rp_table, C.rp_quality,
             C.st_mode, C.st_base_url, C.st_cert, C.st_key, C.st_verify, C.st_cred, C.st_scope, C.st_workers, C.st_batch, C.st_skip,
@@ -459,15 +463,11 @@ def build_app() -> gr.Blocks:
         def on_select_analysis(new_aid, *rest):  # noqa: ANN001, ANN002
             """Смена анализа: сброс фильтров операций и перерисовка текущей страницы (остаёмся на обзоре, если были в реестре)."""
             out = {aid: new_aid, sel_idx: None}
-            ctx = context_for(new_aid)
             target = "overview"
-            reset = ["", "Все", "Все", "Все", "Все", "", "", "Дата ↑", 1, "25", "count", "count", "", "Все"]
+            reset = ["", "Все", "Все", 0, "count", "count", "", "Все"]
             out.update(refresh(target, new_aid, *reset))
-            if ctx is not None:
-                choices = V.filter_choices(ctx)
-                out[C.op_cat] = gr.update(choices=choices["category"], value="Все")
-                out[C.op_ground] = gr.update(choices=choices["ground"], value="Все")
-            for comp, value in zip(filter_inputs, reset[:8]):
+            out[op_page] = 0
+            for comp, value in zip(filter_inputs, reset[:3]):
                 out.setdefault(comp, value)
             return out
 
@@ -662,50 +662,37 @@ def build_app() -> gr.Blocks:
             ctx = context_for(current_aid)
             if ctx is None or not inn:
                 return {}
-            flt = [str(inn), "Все", "Все", "Все", "Все", "", "", "Дата ↑"]
-            out = refresh("operations", current_aid, *flt, 1, rest[-5], *rest[-4:])
+            flt = [str(inn), "Все", "Все"]
+            out = refresh("operations", current_aid, *flt, 0, *rest[-4:])
             out.update(dict(zip(filter_inputs, flt)))
             return out
 
         C.cp_show_ops.click(cp_show_ops, [aid, cp_inn, *page_inputs[1:]], [*all_page_outputs, *filter_inputs])
 
         # ───── операции: фильтры, страницы, выгрузка ─────
-        def ops_refresh(current_aid, page_no, size, *flt):  # noqa: ANN001, ANN002
+        def ops_go(current_aid, page, q, risk, direction):  # noqa: ANN001
             ctx = context_for(current_aid)
             if ctx is None:
                 return {}
-            return render_operations(ctx, int(page_no or 1) - 1, int(size), *flt)
+            return render_operations(ctx, int(page or 0), q, risk, direction)
 
-        ops_outputs = [C.op_table, C.op_info, C.op_page_no]
-        for comp in (C.op_dir, C.op_cat, C.op_status, C.op_ground, C.op_sort, C.op_size):
-            comp.input(lambda current_aid, size, *flt: ops_refresh(current_aid, 1, size, *flt), [aid, C.op_size, *filter_inputs], ops_outputs,
-                       show_progress="hidden")
-        for comp in (C.op_q, C.op_min, C.op_max):  # текстовые поля: по Enter или при уходе из поля, а не на каждую букву
-            for event in (comp.submit, comp.blur):
-                event(lambda current_aid, size, *flt: ops_refresh(current_aid, 1, size, *flt), [aid, C.op_size, *filter_inputs], ops_outputs,
-                      show_progress="hidden", trigger_mode="always_last")
-        C.op_page_no.submit(ops_refresh, [aid, C.op_page_no, C.op_size, *filter_inputs], ops_outputs, show_progress="hidden")
-        C.op_prev.click(lambda current_aid, page_no, size, *flt: ops_refresh(current_aid, max(int(page_no or 1) - 1, 1), size, *flt),
-                        [aid, C.op_page_no, C.op_size, *filter_inputs], ops_outputs, show_progress="hidden")
-        C.op_next.click(lambda current_aid, page_no, size, *flt: ops_refresh(current_aid, int(page_no or 1) + 1, size, *flt),
-                        [aid, C.op_page_no, C.op_size, *filter_inputs], ops_outputs, show_progress="hidden")
-
-        def ops_reset(current_aid):  # noqa: ANN001
-            base = ["", "Все", "Все", "Все", "Все", "", "", "Дата ↑"]
-            out = dict(zip(filter_inputs, base))
-            ctx = context_for(current_aid)
-            if ctx is not None:
-                out.update(render_operations(ctx, 0, 25, *base))
-            out[C.op_size] = "25"
-            return out
-
-        C.op_reset.click(ops_reset, [aid], [*filter_inputs, *ops_outputs, C.op_size], show_progress="hidden")
+        ops_outputs = [C.op_html, C.op_info, op_page]
+        ops_inputs = [aid, op_page, *filter_inputs]
+        for comp in (C.op_risk, C.op_dir):
+            comp.input(lambda current_aid, _page, *flt: ops_go(current_aid, 0, *flt), ops_inputs, ops_outputs, show_progress="hidden")
+        for event in (C.op_q.submit, C.op_q.blur):  # поиск — по Enter или при уходе из поля, а не на каждую букву
+            event(lambda current_aid, _page, *flt: ops_go(current_aid, 0, *flt), ops_inputs, ops_outputs, show_progress="hidden",
+                  trigger_mode="always_last")
+        C.op_prev.click(lambda current_aid, page, *flt: ops_go(current_aid, max(int(page or 0) - 1, 0), *flt), ops_inputs, ops_outputs,
+                        show_progress="hidden")
+        C.op_next.click(lambda current_aid, page, *flt: ops_go(current_aid, int(page or 0) + 1, *flt), ops_inputs, ops_outputs,
+                        show_progress="hidden")
 
         def ops_export(current_aid, *flt):  # noqa: ANN001, ANN002
             ctx = context_for(current_aid)
             if ctx is None:
                 return gr.update(visible=False)
-            _, _, _, filtered = V.operations_page(ctx, V.make_filters(*flt), 0, 25)
+            filtered = V.filtered_operations(ctx, V.make_filters(*flt))
             path = export_to_temp(ctx.df, f"операции_{ctx.meta['id'][-6:]}", reviews=ctx.reviews, risk_db=ctx.risk_db,
                                   only_idx=set(filtered["idx"].astype(str)))
             return gr.update(value=path, visible=True)
@@ -738,26 +725,21 @@ def build_app() -> gr.Blocks:
                 C.dt_msg: ""})
             return out
 
-        def ops_select(current_aid, *flt_and_evt):  # noqa: ANN001, ANN002
-            evt = flt_and_evt[-1]
-            flt = flt_and_evt[:-1]
+        def ops_open(current_aid, pick, *flt):  # noqa: ANN001, ANN002
+            """Клик по строке HTML-таблицы: скрипт кладёт в скрытое поле «номер:время»; номер — позиция в отфильтрованном списке."""
             ctx = context_for(current_aid)
-            row = getattr(evt, "row_value", None)
-            if ctx is None or not row:
-                return {}
             try:
-                position = int(row[0])
+                position = int(str(pick).split(":")[0])
             except (TypeError, ValueError):
                 return {}
-            _, _, _, filtered = V.operations_page(ctx, V.make_filters(*flt), 0, 25)
+            if ctx is None:
+                return {}
+            filtered = V.filtered_operations(ctx, V.make_filters(*flt))
             if not 1 <= position <= len(filtered):
                 return {}
             return detail_updates(ctx, str(filtered.iloc[position - 1]["idx"]))
 
-        def ops_select_wrapper(current_aid, q, d, cat, st, gnd, mn, mx, srt, evt: gr.SelectData):  # noqa: ANN001
-            return ops_select(current_aid, q, d, cat, st, gnd, mn, mx, srt, evt)
-
-        C.op_table.select(ops_select_wrapper, [aid, *filter_inputs], detail_outputs[1:], show_progress="hidden")
+        C.op_pick_btn.click(ops_open, [aid, C.op_pick, *filter_inputs], detail_outputs[1:], show_progress="hidden")
 
         def report_table_select(current_aid, evt: gr.SelectData):  # noqa: ANN001
             ctx = context_for(current_aid)
@@ -811,7 +793,7 @@ def build_app() -> gr.Blocks:
                     return gr.update(visible=False), '<div class="note warn">Сначала выберите анализ.</div>'
                 only = None
                 if kind == "marked":
-                    only = set(ctx.df.loc[ctx.df["status"].isin(["disputable", "attention"]), "idx"].astype(str))
+                    only = set(ctx.df.loc[ctx.df["status"] == "disputable", "idx"].astype(str))
                 elif kind == "worked":
                     only = set(V.worked_frame(ctx)["idx"].astype(str))
                     if not only:
@@ -865,13 +847,8 @@ def build_app() -> gr.Blocks:
             first = choices[0][1] if choices else None
             out = {aid: first, C.analysis_dd: gr.update(choices=choices, value=first), poll_sig: signature(),
                    C.timer: gr.Timer(active=any(m["status"] in ACTIVE_STATUSES for m in STORE.list()))}
-            out.update(refresh("registry", first, "", "Все", "Все", "Все", "Все", "", "", "Дата ↑", 1, "25", "count", "count", "", "Все"))
+            out.update(refresh("registry", first, "", "Все", "Все", 0, "count", "count", "", "Все"))
             out.update(settings_values())
-            ctx = context_for(first)
-            if ctx is not None:
-                choices_f = V.filter_choices(ctx)
-                out[C.op_cat] = gr.update(choices=choices_f["category"], value="Все")
-                out[C.op_ground] = gr.update(choices=choices_f["ground"], value="Все")
             return out
 
         demo.load(on_load, None, [aid, C.analysis_dd, poll_sig, C.timer, *all_page_outputs], show_progress="hidden")

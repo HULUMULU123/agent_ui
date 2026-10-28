@@ -14,20 +14,15 @@ from .agent.risk_memory import RISK_GRADE_LABELS
 
 # ───────────────────────── Статусы ─────────────────────────
 
-STATUS_ORDER = ["disputable", "attention", "unclassified", "typical"]
-STATUS_LABELS = {
-    "disputable": "Потенциально оспоримая",
-    "attention": "Требует проверки",
-    "unclassified": "Не классифицирована",
-    "typical": "Типовая операция",
-}
+# Как в тетради агента: risk_level только 0 или 1 (1 — «Требует проверки», 0 — «Риска нет»).
+STATUS_ORDER = ["disputable", "typical"]
+STATUS_LABELS = {"disputable": "Требует проверки", "typical": "Риска нет"}
 STATUS_HINTS = {
-    "disputable": "Агент нашёл материальный вопрос по операции: приоритет ручной проверки (не вывод о недействительности).",
-    "attention": "Результат автоматического анализа ненадёжен: перенос с похожей операции со средним сходством или анализ не завершён.",
-    "unclassified": "Тип операции по назначению платежа не установлен, материального вопроса по данным не выявлено.",
-    "typical": "Операция понятна и не вызывает вопросов по доступным данным.",
+    "disputable": "Риск 1: по операции есть вопрос, который обычное объяснение не снимает — нужна ручная проверка.",
+    "typical": "Риск 0: операция понятна и не вызывает вопросов по доступным данным.",
 }
-STATUS_COLORS = {"disputable": "#ff6b6b", "attention": "#f5b83d", "unclassified": "#8b98a9", "typical": "#2ee6a6"}
+STATUS_COLORS = {"disputable": "#ff6b6b", "typical": "#2ee6a6"}
+RISK_FILTER_CHOICES = ["Все", "Риск 1", "Риск 0"]
 
 # Основание проверки для таблиц и карточек (короткая ссылка на норму по маршруту).
 ROUTE_GROUND = {
@@ -51,18 +46,19 @@ TOOL_LABELS = {"search_practice_and_normative": "Поиск норм и суде
 
 
 def derive_status(row: dict) -> str:
-    source = row.get("analysis_source")
+    """Только по risk_level: 1 -> «Требует проверки», 0 -> «Риска нет» (нет значения — тоже на проверку)."""
     risk = row.get("risk_level")
-    risk = None if is_missing(risk) else int(risk)
-    if source in ("manual_review_required", "none") or risk is None:
-        return "attention"
-    if risk == 1 and source == "propagated" and row.get("propagation_confidence") == "medium":
-        return "attention"
-    if risk == 1:
-        return "disputable"
-    if row.get("operation_type_need_review"):
-        return "unclassified"
-    return "typical"
+    return "typical" if not is_missing(risk) and int(risk) == 0 else "disputable"
+
+
+def refresh_status(df: pd.DataFrame) -> pd.DataFrame:
+    """Пересчёт статусов у анализов, сохранённых прежней версией (там было четыре статуса)."""
+    risk = pd.to_numeric(df["risk_level"], errors="coerce")
+    df["status"] = risk.map(lambda v: "typical" if v == 0 else "disputable")
+    df["status_label"] = df["status"].map(STATUS_LABELS)
+    df["manual"] = df["analysis_source"].isin(["manual_review_required", "none"])
+    df["type_unknown"] = df.get("operation_type_need_review", False).fillna(False).astype(bool) if "operation_type_need_review" in df.columns else False
+    return df
 
 
 def enrich(df: pd.DataFrame) -> pd.DataFrame:
@@ -75,6 +71,8 @@ def enrich(df: pd.DataFrame) -> pd.DataFrame:
     out["month"] = pd.to_datetime(out["date"], errors="coerce").dt.to_period("M").astype(str)
     out["status"] = [derive_status(r) for r in records]
     out["status_label"] = out["status"].map(STATUS_LABELS)
+    out["manual"] = out["analysis_source"].isin(["manual_review_required", "none"])
+    out["type_unknown"] = out["operation_type_need_review"].fillna(False).astype(bool) if "operation_type_need_review" in out.columns else False
     out["ground"] = [ROUTE_GROUND.get(r.get("check_route"), "") if r.get("risk_level") == 1 else "" for r in records]
     out["route_title"] = out["check_route"].map(ROUTE_SHORT_TITLES).fillna("")
     out["source_label"] = out["analysis_source"].map(SOURCE_LABELS).fillna(out["analysis_source"])
@@ -120,13 +118,15 @@ def short_name(name: str, limit: int = 44) -> str:
 def kpis(df: pd.DataFrame) -> dict[str, Any]:
     total = len(df)
     counts = df["status"].value_counts().to_dict()
-    recognized = total - counts.get("unclassified", 0)
+    manual = int(df["manual"].sum()) if "manual" in df.columns else 0
+    type_unknown = int(df["type_unknown"].sum()) if "type_unknown" in df.columns else 0
+    recognized = total - type_unknown
     inflow = float(df.loc[df["direction"] == "прибытие", "amount_abs"].sum())
     outflow = float(df.loc[df["direction"] == "убытие", "amount_abs"].sum())
     risky = df[df["status"] == "disputable"]
     return {
         "total": total, "recognized": recognized, "disputable": counts.get("disputable", 0),
-        "attention": counts.get("attention", 0), "unclassified": counts.get("unclassified", 0),
+        "attention": manual, "unclassified": type_unknown,
         "typical": counts.get("typical", 0), "inflow": inflow, "outflow": outflow, "net": inflow - outflow,
         "risky_amount": float(risky["amount_abs"].sum()),
         "period_start": df["date"].min(), "period_end": df["date"].max(),
@@ -173,7 +173,7 @@ def counterparty_table(df: pd.DataFrame, risk_db: Any | None = None) -> pd.DataF
         name = names.value_counts().index[0] if len(names) else "—"
         cats = group["operation_category"].value_counts().index[:2].tolist()
         n_disputable = int((group["status"] == "disputable").sum())
-        n_attention = int((group["status"] == "attention").sum())
+        n_attention = int(group["manual"].sum()) if "manual" in group.columns else 0
         grade, score = None, None
         if risk_db is not None:
             try:
@@ -193,7 +193,7 @@ def counterparty_table(df: pd.DataFrame, risk_db: Any | None = None) -> pd.DataF
             "inflow": float(group.loc[group["direction"] == "прибытие", "amount_abs"].sum()),
             "outflow": float(group.loc[group["direction"] == "убытие", "amount_abs"].sum()),
             "categories": cats, "n_disputable": n_disputable, "n_attention": n_attention,
-            "n_unclassified": int((group["status"] == "unclassified").sum()),
+            "n_unclassified": int(group["type_unknown"].sum()) if "type_unknown" in group.columns else 0,
             "level": level, "history_grade": RISK_GRADE_LABELS.get(grade or "NO_HISTORY", "нет истории"),
             "history_score": score,
             "first": group["date"].min(), "last": group["date"].max(),
@@ -201,7 +201,7 @@ def counterparty_table(df: pd.DataFrame, risk_db: Any | None = None) -> pd.DataF
     return pd.DataFrame(rows).sort_values("turnover", ascending=False).reset_index(drop=True)
 
 
-LEVEL_LABELS = {"high": "Высокий", "check": "Требует проверки", "low": "Низкий"}
+LEVEL_LABELS = {"high": "Высокий", "check": "Средний", "low": "Низкий"}
 
 
 def grounds_summary(df: pd.DataFrame) -> pd.DataFrame:
@@ -244,6 +244,7 @@ class OperationFilters:
     date_from: str = ""
     date_to: str = ""
     only_marked: bool = False
+    risk: int | None = None  # 1 / 0 / None — все
     sort: str = "Дата ↑"
 
 
@@ -283,13 +284,15 @@ def apply_filters(df: pd.DataFrame, f: OperationFilters, presorted_by_date: bool
         out = out[pd.to_datetime(out["date"], errors="coerce") >= pd.to_datetime(f.date_from, dayfirst=True, errors="coerce")]
     if f.date_to:
         out = out[pd.to_datetime(out["date"], errors="coerce") <= pd.to_datetime(f.date_to, dayfirst=True, errors="coerce")]
+    if f.risk in (0, 1):
+        out = out[out["risk_level"] == f.risk]
     if f.only_marked:
-        out = out[out["status"].isin(["disputable", "attention"])]
+        out = out[out["status"] == "disputable"]
     column, ascending = SORTS.get(f.sort, SORTS["Дата ↑"])
     if column == "_priority":
         order = {s: i for i, s in enumerate(STATUS_ORDER)}
-        out = out.assign(_priority=out["status"].map(order)).sort_values(["_priority", "amount_abs"], ascending=[True, False],
-                                                                         kind="mergesort").drop(columns="_priority")
+        # сначала риск 1, внутри групп — по дате
+        out = out.assign(_priority=out["status"].map(order)).sort_values(["_priority", "date"], kind="mergesort").drop(columns="_priority")
     elif column == "date" and ascending and presorted_by_date:
         pass  # порядок уже по дате
     else:

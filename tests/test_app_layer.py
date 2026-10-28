@@ -72,10 +72,10 @@ def test_end_to_end_job_store_and_exports(app_modules, tmp_path):
 
     from finapp.analytics import OperationFilters, apply_filters, counterparty_table, grounds_summary, kpis
     k = kpis(bundle.df)
-    assert k["total"] == 15 and k["disputable"] + k["attention"] + k["unclassified"] + k["typical"] == 15
+    assert k["total"] == 15 and k["disputable"] + k["typical"] == 15  # только риск 1 и риск 0
     assert not counterparty_table(bundle.df).empty
-    only_risky = apply_filters(bundle.df, OperationFilters(status="Потенциально оспоримая"))
-    assert (only_risky["status"] == "disputable").all()
+    only_risky = apply_filters(bundle.df, OperationFilters(risk=1))
+    assert (only_risky["risk_level"] == 1).all() and (only_risky["status"] == "disputable").all()
     assert apply_filters(bundle.df, OperationFilters(query="займа")).shape[0] > 0
     assert grounds_summary(bundle.df).empty or "ground" in grounds_summary(bundle.df).columns
 
@@ -178,3 +178,32 @@ def test_recommendation_editing_roundtrip_and_export(app_modules, tmp_path):
     back.loc[0, "Рекомендация (можно править)"] = original
     assert V.save_recommendation_edits(ctx, V.REC_SCOPES[0], "", 0, 15, back, store.STORE) == (0, 1)
     assert not any(r.get("recommendation") for r in store.STORE.load_reviews(meta["id"]).values())
+
+
+def test_operations_tab_uses_risk_0_1_and_light_html_table(app_modules, tmp_path):
+    store, jobs = app_modules
+    from tools.make_demo_statement import build
+    demo = tmp_path / "demo.xlsx"
+    build().to_excel(demo, index=False)
+    meta = jobs.JOBS.submit(demo, "10.10.2025")
+    assert wait_done(store, meta["id"])["status"] == "done"
+
+    from finapp.ui import render as R, views as V
+    from finapp.ui.app import context_for
+    ctx = context_for(meta["id"])
+    assert set(ctx.df["risk_level"]) <= {0, 1} and set(ctx.df["status_label"]) <= {"Требует проверки", "Риска нет"}
+
+    rows, info, pages, filtered = V.operations_rows(ctx, V.make_filters("", "Все", "Все"), 0)
+    assert len(rows) == V.OPS_PAGE_SIZE and pages > 1
+    assert [r["risk"] for r in rows[:6]] == [1] * 6  # сначала риск 1
+    assert all(r["risk"] in (0, 1) for r in rows)
+    html = R.ops_table_html(rows)
+    assert html.count("<tr data-n=") == len(rows) and "Риск (0/1)" in html and "Потенциально" not in html
+
+    only1, *_ = V.operations_rows(ctx, V.make_filters("", "Риск 1", "Все"), 0)
+    assert len(only1) == 6 and {r["risk"] for r in only1} == {1}
+    only0, _, _, f0 = V.operations_rows(ctx, V.make_filters("", "Риск 0", "Поступление"), 0)
+    assert {r["risk"] for r in only0} == {0} and (f0["direction"] == "прибытие").all()
+    found, _, _, ff = V.operations_rows(ctx, V.make_filters("займ", "Все", "Все"), 0)
+    assert found and ff["purpose"].str.lower().str.contains("займ").all()
+    assert "<script" not in R.ops_table_html([{**rows[0], "purpose": "<script>x</script>"}])  # экранирование

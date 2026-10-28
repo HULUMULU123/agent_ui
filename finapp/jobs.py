@@ -124,7 +124,8 @@ class JobManager:
 
             result = run_analysis(outcome.table, rt, progress=analysis_progress, cancel=cancel)
             full = enrich(result.full_analysis)
-            counts = full["status"].value_counts().to_dict()
+            counts = {"risk1": int((full["risk_level"] == 1).sum()), "manual": int(full["manual"].sum()),
+                      "type_unknown": int(full["type_unknown"].sum())}
             store.save_result(
                 analysis_id, full, rejected=result.rejected, notes=result.notes, stats=result.stats,
                 cluster_strategy=result.cluster_strategy, tokens=result.tokens, memory_update=result.memory_update,
@@ -132,13 +133,12 @@ class JobManager:
             ops_dates = pd.to_datetime(full["date"], errors="coerce")
             store.update_meta(
                 analysis_id, status=DONE, progress=1.0, message="Анализ завершён", finished_at=_now(),
-                n_ops=int(len(full)), n_risky=int(counts.get("disputable", 0)), n_attention=int(counts.get("attention", 0)),
-                n_unclassified=int(counts.get("unclassified", 0)),
+                n_ops=int(len(full)), n_risky=counts["risk1"], n_attention=counts["manual"], n_unclassified=counts["type_unknown"],
                 period_start=f"{ops_dates.min():%d.%m.%Y}" if ops_dates.notna().any() else "",
                 period_end=f"{ops_dates.max():%d.%m.%Y}" if ops_dates.notna().any() else "",
                 org_name=outcome.owner_name or meta.get("org_name") or "", org_inn=outcome.owner_inn or "",
                 tokens=result.tokens, error="")
-            log(f"Готово: операций {len(full)}, потенциально оспоримых {counts.get('disputable', 0)}")
+            log(f"Готово: операций {len(full)}, с риском 1: {counts['risk1']}")
         except AnalysisCancelled:
             store.update_meta(analysis_id, status=CANCELLED, message="Остановлено пользователем", finished_at=_now())
         except Exception as exc:  # noqa: BLE001

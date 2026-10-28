@@ -22,7 +22,7 @@ FINAL_COLUMNS = {
     "idx": "ID операции", "date": "Дата", "debit_inn": "ИНН плательщика", "debit_name": "Плательщик",
     "credit_inn": "ИНН получателя", "credit_name": "Получатель", "direction": "Направление", "amount": "Сумма, руб.",
     "purpose": "Назначение платежа", "period": "Период до заявления", "operation_type": "Тип операции",
-    "status_label": "Статус", "risk_level": "Риск (0/1)", "risk_factors": "Факторы риска",
+    "risk_level": "Риск (0/1)", "status_label": "Итог", "risk_factors": "Факторы риска",
     "counterparty_category": "Категория контрагента", "legal_qualification": "Маршрут проверки",
     "legal_basis": "Правовые основания", "court_basis": "Судебная практика",
     "challenge_criteria": "Что установить", "connections_basis": "Связи сторон",
@@ -39,8 +39,7 @@ COLUMN_WIDTH_LIMITS = {
     "Маршрут проверки": (22, 45), "Рекомендация агента (до правки)": (30, 70), "Связи сторон": (18, 40), "Комментарий сотрудника": (24, 50),
 }
 DEFAULT_WIDTH_LIMITS = (10, 30)
-STATUS_FILL = {"Потенциально оспоримая": "FFF8CBAD", "Требует проверки": "FFFFE699",
-               "Не классифицирована": "FFEDEDED", "Типовая операция": "FFE2F0D9"}
+STATUS_FILL = {"Требует проверки": "FFF8CBAD", "Риска нет": "FFE2F0D9"}  # как в тетради: 1 — розовый, 0 — зелёный
 HEADER_FILL = "FF1F4E78"
 THIN = Side(style="thin", color="FF9E9E9E")
 BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
@@ -149,8 +148,8 @@ def _counterparties_sheet(df: pd.DataFrame, risk_db: Any | None) -> pd.DataFrame
     return pd.DataFrame({
         "ИНН контрагента": table["inn"], "Наименование": table["name"], "Операций": table["n_ops"],
         "Оборот (всего)": table["turnover"].round(2), "Исходящие (убытие)": table["outflow"].round(2),
-        "Входящие (прибытие)": table["inflow"].round(2), "Потенциально оспоримых": table["n_disputable"],
-        "Требуют проверки": table["n_attention"], "Статус риска": table["level"].map(LEVEL_LABELS),
+        "Входящие (прибытие)": table["inflow"].round(2), "Операций с риском 1": table["n_disputable"],
+        "Без результата анализа": table["n_attention"], "Уровень риска контрагента": table["level"].map(LEVEL_LABELS),
         "Историческая память: уровень": table["history_grade"],
         "Первая операция": pd.to_datetime(table["first"]).dt.date, "Последняя операция": pd.to_datetime(table["last"]).dt.date,
     })
@@ -159,7 +158,7 @@ def _counterparties_sheet(df: pd.DataFrame, risk_db: Any | None) -> pd.DataFrame
 def _overview_blocks(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
     k = kpis(df)
     kpi = pd.DataFrame({"Показатель": ["Период выписки", "Всего операций", "Уникальных контрагентов", "Поступления", "Списания",
-                                       "Потенциально оспоримых", "Требуют проверки", "Не классифицировано", "Сумма потенциально оспоримых"],
+                                       "Операций с риском 1", "Без результата анализа (ручная проверка)", "Тип операции не определён", "Сумма операций с риском 1"],
                         "Значение": [f"{pd.Timestamp(k['period_start']):%d.%m.%Y} — {pd.Timestamp(k['period_end']):%d.%m.%Y}"
                                      if pd.notna(k["period_start"]) else "—", k["total"], k["counterparties"],
                                      round(k["inflow"], 2), round(k["outflow"], 2), k["disputable"], k["attention"],
@@ -168,7 +167,7 @@ def _overview_blocks(df: pd.DataFrame) -> list[tuple[str, pd.DataFrame]]:
                .agg(Операций=("idx", "count"), Сумма=("amount_abs", lambda s: round(s.sum(), 2)),
                     **{"Из них с риском": ("risk_level", lambda s: int((s == 1).sum()))})
                .reset_index().rename(columns={"operation_type": "Тип операции"}).sort_values("Операций", ascending=False))
-    by_status = df["status_label"].value_counts().rename_axis("Статус").reset_index(name="Операций")
+    by_status = df["status_label"].value_counts().rename_axis("Итог").reset_index(name="Операций")
     by_source = df["source_label"].value_counts().rename_axis("Источник анализа").reset_index(name="Операций")
     return [("Ключевые показатели", kpi), ("По типу операции", by_type), ("По статусу", by_status),
             ("По источнику анализа", by_source)]

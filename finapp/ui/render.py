@@ -286,6 +286,22 @@ def fmt_stamp(value: Any) -> str:
     return "—" if pd.isna(ts) else f"{ts:%d.%m.%Y %H:%M}"
 
 
+# ───────────────────────── Таблица операций (простой HTML: быстро на слабых ноутбуках) ─────────────────────────
+
+def ops_table_html(rows: list[dict]) -> str:
+    """Таблица операций обычным HTML. Строка кликабельна: скрипт из ui.app.HEAD передаёт номер строки в скрытое поле Gradio."""
+    if not rows:
+        return empty_state("Операций не найдено", "Измените поиск или фильтры.", "search")
+    head = ("<thead><tr><th>№</th><th>Риск (0/1)</th><th>Дата</th><th>Контрагент</th><th>Назначение платежа</th><th>Направление</th>"
+            '<th class="num">Сумма, ₽</th><th>Тип операции</th></tr></thead>')
+    body = "".join(
+        f'<tr data-n="{r["n"]}" tabindex="0"><td class="n">{r["n"]}</td><td class="rk r{r["risk"]}">{r["risk"]}</td><td class="nw">{esc(r["date"])}</td>'
+        f'<td class="cp" title="{esc(r["cp"])}">{esc(r["cp"])}</td><td class="pur" title="{esc(r["purpose"])}">{esc(r["purpose"])}</td>'
+        f'<td class="nw">{esc(r["direction"])}</td><td class="num nw">{esc(r["amount"])}</td><td class="ot" title="{esc(r["optype"])}">{esc(r["optype"])}</td></tr>'
+        for r in rows)
+    return f'<div class="ops-wrap"><table class="ops">{head}<tbody>{body}</tbody></table></div>'
+
+
 # ───────────────────────── Карточка операции ─────────────────────────
 
 FACTOR_ICONS = ["clock", "coins", "link", "alert", "users", "scale"]
@@ -304,8 +320,8 @@ def operation_info_card(row: dict, review: dict | None) -> str:
     decision = ""
     if review and review.get("decision"):
         decision = f'<div class="review-badge">Решение сотрудника: {esc(REVIEW_DECISIONS[review["decision"]])}</div>'
-    body = (f'<div class="status-banner st-{row["status"]}">{icon("alert" if row["status"] in ("disputable", "attention") else "check", 18)}'
-            f'<span>{esc(STATUS_LABELS[row["status"]])}</span></div>'
+    body = (f'<div class="status-banner st-{row["status"]}">{icon("alert" if row["status"] == "disputable" else "check", 18)}'
+            f'<span>Риск {"1" if row["status"] == "disputable" else "0"} — {esc(STATUS_LABELS[row["status"]]).lower()}</span></div>'
             f'<div class="amount {"neg" if out else "pos"}">{fmt_money(row["amount_abs"])}</div>'
             f'<div class="dir {"neg" if out else "pos"}">{arrow}<span>{direction_label}</span></div>{decision}'
             f'<div class="kvs">{rows}</div>')
@@ -383,7 +399,7 @@ def counterparty_detail_html(row: pd.Series, ops: pd.DataFrame) -> str:
     stats = "".join(f'<div class="stat"><span>{esc(k)}</span><b>{esc(v)}</b></div>' for k, v in [
         ("Операций", fmt_int(row["n_ops"])), ("Оборот", fmt_money(row["turnover"], True)),
         ("Поступления", fmt_money(row["inflow"], True)), ("Списания", fmt_money(row["outflow"], True)),
-        ("Потенциально оспоримых", fmt_int(row["n_disputable"])), ("Требуют проверки", fmt_int(row["n_attention"])),
+        ("Операций с риском 1", fmt_int(row["n_disputable"])), ("Без результата анализа", fmt_int(row["n_attention"])),
         ("История в памяти риска", row["history_grade"]),
         ("Период", f"{fmt_date(row['first'])} — {fmt_date(row['last'])}")])
     shown = ops.sort_values("date", ascending=False).head(8)

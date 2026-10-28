@@ -7,7 +7,7 @@ from typing import Any
 import pandas as pd
 
 from ..agent.prompts import ROUTE_CHECKS
-from ..analytics import (LEVEL_LABELS, OperationFilters, STATUS_LABELS, STATUS_ORDER, amount_distribution, apply_filters,
+from ..analytics import (LEVEL_LABELS, RISK_FILTER_CHOICES, OperationFilters, STATUS_LABELS, STATUS_ORDER, amount_distribution, apply_filters,
                          category_breakdown, category_options, counterparty_table, criteria_lists, fmt_date, fmt_int,
                          fmt_money, fmt_pct, ground_options, grounds_summary, kpis, monthly_flow, related_operations,
                          safe_float, short_name, top_counterparties)
@@ -15,11 +15,8 @@ from ..store import REVIEW_DECISIONS, AnalysisBundle
 from . import render as R
 
 STATUS_COLUMN = "Статус"
-OPS_COLUMNS = ["№", STATUS_COLUMN, "Дата", "Контрагент", "ИНН", "Назначение платежа", "Направление", "Сумма, ₽", "Категория",
-               "Основание проверки", "Решение", "Рекомендация"]
-PAGE_SIZES = ["25", "50", "100", "200"]
 
-STATUS_MARK = {STATUS_LABELS["disputable"]: "🔴", STATUS_LABELS["attention"]: "🟠", STATUS_LABELS["unclassified"]: "⚪", STATUS_LABELS["typical"]: "🟢"}
+STATUS_MARK = {STATUS_LABELS["disputable"]: "🔴", STATUS_LABELS["typical"]: "🟢"}
 LEVEL_MARK = {LEVEL_LABELS["high"]: "🔴", LEVEL_LABELS["check"]: "🟠", LEVEL_LABELS["low"]: "🟢"}
 
 
@@ -100,12 +97,12 @@ def registry_kpis(metas: list[dict]) -> str:
     return R.kpi_row([
         R.kpi_card("Всего анализов", fmt_int(len(metas)), "file", "blue"),
         R.kpi_card("Всего операций", fmt_int(total_ops), "check", "green"),
-        R.kpi_card("Потенциально оспоримые", fmt_int(risky), "alert", "red", hint="Операции, отмеченные агентом для приоритетной проверки"),
-        R.kpi_card("Требуют внимания", fmt_int(attention), "search", "amber", hint="Анализы с ошибкой или операциями, результат по которым ненадёжен"),
+        R.kpi_card("Операции с риском 1", fmt_int(risky), "alert", "red", hint="Операции, по которым агент поставил риск 1 (требует проверки)"),
+        R.kpi_card("Требуют внимания", fmt_int(attention), "search", "amber", hint="Анализы с ошибкой или с операциями, по которым автоматический анализ не дал результата"),
     ])
 
 
-REGISTRY_COLUMNS = ["Код", "Организация", "ИНН", "Файл", "Период", "Операций", "Потенциально оспоримые", "Не классифицировано",
+REGISTRY_COLUMNS = ["Код", "Организация", "ИНН", "Файл", "Период", "Операций", "Риск 1", "Тип не определён",
                     "Загружено", "Статус"]
 
 
@@ -121,8 +118,8 @@ def registry_table(metas: list[dict]) -> pd.DataFrame:
             "Код": m["id"][-6:], "Организация": m.get("org_name") or "—", "ИНН": m.get("org_inn") or "—", "Файл": m["filename"],
             "Период": f"{m.get('period_start') or '—'} – {m.get('period_end') or '—'}",
             "Операций": fmt_int(m.get("n_ops") or 0) if m["status"] == "done" else "—",
-            "Потенциально оспоримые": fmt_int(m.get("n_risky") or 0) if m["status"] == "done" else "—",
-            "Не классифицировано": fmt_int(m.get("n_unclassified") or 0) if m["status"] == "done" else "—",
+            "Риск 1": fmt_int(m.get("n_risky") or 0) if m["status"] == "done" else "—",
+            "Тип не определён": fmt_int(m.get("n_unclassified") or 0) if m["status"] == "done" else "—",
             "Загружено": R.fmt_stamp(m.get("created_at")), "Статус": label})
     return pd.DataFrame(rows, columns=REGISTRY_COLUMNS)
 
@@ -156,17 +153,16 @@ def overview_head(ctx: Context) -> str:
 def overview_kpis(ctx: Context) -> str:
     df, k = ctx.df, kpis(ctx.df)
     total = max(k["total"], 1)
-    s = lambda status: R.month_series(df, df["status"] == status)  # noqa: E731
+    series = lambda mask: R.month_series(df, mask)  # noqa: E731
     return R.kpi_row([
         R.kpi_card("Всего операций", fmt_int(k["total"]), "file", "blue", spark=R.sparkline(R.month_series(df), "#3ac3ff")),
-        R.kpi_card("Классифицировано", fmt_int(k["recognized"]), "check", "green", sub=fmt_pct(k["recognized"], total),
-                   spark=R.sparkline(R.month_series(df, df["status"] != "unclassified"), "#25e3a5")),
-        R.kpi_card("Потенциально оспоримые", fmt_int(k["disputable"]), "alert", "red", sub=fmt_pct(k["disputable"], total),
-                   spark=R.sparkline(s("disputable"), "#ff6b6b"), hint="Операции, отмеченные агентом для приоритетной проверки"),
-        R.kpi_card("Требуют проверки", fmt_int(k["attention"]), "search", "amber", sub=fmt_pct(k["attention"], total),
-                   spark=R.sparkline(s("attention"), "#f5b83d"), hint="Автоматический результат ненадёжен"),
-        R.kpi_card("Не классифицировано", fmt_int(k["unclassified"]), "help", "gray", sub=fmt_pct(k["unclassified"], total),
-                   spark=R.sparkline(s("unclassified"), "#8b98a9")),
+        R.kpi_card("Риск 1 — требует проверки", fmt_int(k["disputable"]), "alert", "red", sub=fmt_pct(k["disputable"], total),
+                   spark=R.sparkline(series(df["status"] == "disputable"), "#ff6b6b"), hint="Операции, по которым агент поставил риск 1"),
+        R.kpi_card("Риск 0 — риска нет", fmt_int(k["typical"]), "check", "green", sub=fmt_pct(k["typical"], total),
+                   spark=R.sparkline(series(df["status"] == "typical"), "#25e3a5")),
+        R.kpi_card("Анализ не дал результата", fmt_int(k["attention"]), "search", "amber", sub=fmt_pct(k["attention"], total),
+                   hint="Агент не смог проанализировать операцию — она автоматически получила риск 1 и ждёт ручной проверки"),
+        R.kpi_card("Тип операции не определён", fmt_int(k["unclassified"]), "help", "gray", sub=fmt_pct(k["unclassified"], total)),
     ])
 
 
@@ -187,17 +183,6 @@ def overview_cards(ctx: Context, top_mode: str = "count") -> dict[str, str]:
 
 # ───────────────────────── Операции ─────────────────────────
 
-def operations_kpis(ctx: Context) -> str:
-    k = kpis(ctx.df)
-    total = max(k["total"], 1)
-    return R.kpi_row([
-        R.kpi_card("Всего операций", fmt_int(k["total"]), "file", "blue"),
-        R.kpi_card("Потенциально оспоримые", fmt_int(k["disputable"]), "alert", "red", sub=fmt_pct(k["disputable"], total)),
-        R.kpi_card("Требуют проверки", fmt_int(k["attention"]), "search", "amber", sub=fmt_pct(k["attention"], total)),
-        R.kpi_card("Не классифицированы", fmt_int(k["unclassified"]), "help", "gray", sub=fmt_pct(k["unclassified"], total)),
-    ])
-
-
 def to_number(value: Any) -> float | None:
     if value in (None, ""):
         return None
@@ -215,29 +200,35 @@ def make_filters(query: str, direction: str, category: str, status: str, ground:
                             amount_max=to_number(amount_max), sort=sort or "Дата ↑", only_marked=only_marked)
 
 
-def operations_page(ctx: Context, filters: OperationFilters, page: int, page_size: int) -> tuple[pd.DataFrame, str, int, pd.DataFrame]:
-    """-> (таблица текущей страницы, строка «показано», число страниц, отфильтрованные операции)."""
-    filtered = apply_filters(ctx.view, filters, presorted_by_date=True)
+RISK_CHOICES = RISK_FILTER_CHOICES
+DIRECTION_FILTERS = ["Все", "Списание", "Поступление"]
+OPS_PAGE_SIZE = 25
+
+
+def make_filters(query: str, risk: str, direction: str) -> OperationFilters:
+    dir_map = {"Списание": "убытие", "Поступление": "прибытие"}
+    return OperationFilters(query=query or "", direction=dir_map.get(direction, "Все"),
+                            risk={"Риск 1": 1, "Риск 0": 0}.get(risk), sort="Приоритет")
+
+
+def filtered_operations(ctx: Context, filters: OperationFilters) -> pd.DataFrame:
+    """Операции по фильтрам: сначала риск 1, внутри групп — по дате. Работает на лёгком представлении."""
+    return apply_filters(ctx.view, filters)
+
+
+def operations_rows(ctx: Context, filters: OperationFilters, page: int, size: int = OPS_PAGE_SIZE) -> tuple[list[dict], str, int, pd.DataFrame]:
+    """-> (строки текущей страницы для HTML-таблицы, строка «показано», число страниц, все найденные операции)."""
+    filtered = filtered_operations(ctx, filters)
     total = len(filtered)
-    pages = max(1, -(-total // page_size))
+    pages = max(1, -(-total // size))
     page = min(max(page, 0), pages - 1)
-    chunk = filtered.iloc[page * page_size:(page + 1) * page_size]
-    rows = []
-    for position, (_, r) in enumerate(chunk.iterrows(), start=page * page_size + 1):
-        review = ctx.reviews.get(str(r["idx"]), {})
-        rows.append({
-            "№": position, STATUS_COLUMN: mark_status(r["status_label"]), "Дата": fmt_date(r["date"]), "Контрагент": r["cp_name"] or "—",
-            "ИНН": r["cp_inn"] or "—", "Назначение платежа": short_name(r["purpose"], 100),
-            "Направление": "Списание" if r["direction"] == "убытие" else "Поступление" if r["direction"] == "прибытие" else "—",
-            "Сумма, ₽": fmt_int(r["amount_abs"]), "Категория": r["operation_category"], "Основание проверки": r["ground"] or "—",
-            "Решение": REVIEW_DECISIONS.get(review.get("decision", ""), "") if review else "",
-            "Рекомендация": "✎ изменена" if review.get("recommendation") else ""})
+    chunk = filtered.iloc[page * size:(page + 1) * size]
+    rows = [{"n": position, "risk": int(r["risk_level"]) if pd.notna(r["risk_level"]) else 1, "date": fmt_date(r["date"]), "cp": r["cp_name"] or "—",
+             "purpose": short_name(r["purpose"], 120), "direction": "Списание" if r["direction"] == "убытие" else "Поступление" if r["direction"] == "прибытие" else "—",
+             "amount": fmt_int(r["amount_abs"]), "optype": r["operation_type"]}
+            for position, (_, r) in enumerate(chunk.iterrows(), start=page * size + 1)]
     shown = f"Показано {fmt_int(len(chunk))} из {fmt_int(total)} операций · страница {page + 1} из {pages}"
-    return pd.DataFrame(rows, columns=OPS_COLUMNS), shown, pages, filtered
-
-
-def filter_choices(ctx: Context) -> dict[str, list[str]]:
-    return {"category": category_options(ctx.df), "ground": ground_options(ctx.df)}
+    return rows, shown, pages, filtered
 
 
 # ───────────────────────── Рекомендации (правятся сотрудником) ─────────────────────────
@@ -253,21 +244,17 @@ def effective_recommendation(row: dict, review: dict | None) -> str:
 
 
 REC_COLUMNS = ["№", STATUS_COLUMN, "Дата", "Контрагент", "Сумма, ₽", "Основание проверки", "Рекомендация (можно править)"]
-REC_SCOPES = ["Отмеченные для проверки", "Только потенциально оспоримые", "Только требуют проверки", "Все операции", "Только с правками"]
+REC_SCOPES = ["Операции с риском 1", "Все операции", "Только с правками"]
 REC_SIZES = ["15", "30", "50"]
 
 
 def recommendations_filtered(ctx: Context, scope: str, query: str) -> pd.DataFrame:
     """Лёгкое представление (индекс = индекс полной таблицы), отсортированное по приоритету и сумме."""
     df = ctx.view
-    if scope == "Только потенциально оспоримые":
-        df = df[df["status"] == "disputable"]
-    elif scope == "Только требуют проверки":
-        df = df[df["status"] == "attention"]
-    elif scope == "Только с правками":
+    if scope == "Только с правками":
         df = df[df["idx"].isin([i for i, r in ctx.reviews.items() if r.get("recommendation")])]
     elif scope != "Все операции":
-        df = df[df["status"].isin(["disputable", "attention"])]
+        df = df[df["status"] == "disputable"]
     query = (query or "").strip().lower()
     if query:
         df = df[df["_hay"].str.contains(query, regex=False)]
@@ -351,8 +338,8 @@ def detail_blocks(ctx: Context, idx: str) -> dict[str, Any] | None:
 
 # ───────────────────────── Контрагенты ─────────────────────────
 
-CP_COLUMNS = ["ИНН", "Контрагент", "Операций", "Оборот, ₽", "Доля в обороте", "Основные категории", "Потенциально оспоримых",
-              "Требуют проверки", "История", "Статус риска"]
+CP_COLUMNS = ["ИНН", "Контрагент", "Операций", "Оборот, ₽", "Доля в обороте", "Основные категории", "Операций с риском 1",
+              "Без результата", "История", "Статус риска"]
 CP_LEVEL_CHOICES = ["Все", *LEVEL_LABELS.values()]
 
 
@@ -364,7 +351,7 @@ def counterparties_kpis(ctx: Context) -> str:
     return R.kpi_row([
         R.kpi_card("Всего контрагентов", fmt_int(len(cp)), "users", "blue"),
         R.kpi_card("Высокий риск", fmt_int((cp["level"] == "high").sum()), "alert", "red"),
-        R.kpi_card("Требуют проверки", fmt_int((cp["level"] == "check").sum()), "search", "amber"),
+        R.kpi_card("Средний риск", fmt_int((cp["level"] == "check").sum()), "search", "amber"),
         R.kpi_card("Операций без ИНН контрагента", fmt_int(n_unknown), "help", "gray"),
     ])
 
@@ -396,7 +383,7 @@ def counterparties_table(ctx: Context, query: str, level: str) -> pd.DataFrame:
     return pd.DataFrame({
         "ИНН": cp["inn"], "Контрагент": cp["name"], "Операций": cp["n_ops"].map(fmt_int), "Оборот, ₽": cp["turnover"].map(fmt_int),
         "Доля в обороте": cp.apply(lambda r: fmt_pct(r["share"], 1), axis=1), "Основные категории": cp["categories"].map(lambda c: "; ".join(c)),
-        "Потенциально оспоримых": cp["n_disputable"], "Требуют проверки": cp["n_attention"], "История": cp["history_grade"],
+        "Операций с риском 1": cp["n_disputable"], "Без результата": cp["n_attention"], "История": cp["history_grade"],
         "Статус риска": cp["level"].map(LEVEL_LABELS)}, columns=CP_COLUMNS).reset_index(drop=True)
 
 
@@ -456,11 +443,11 @@ def report_table(ctx: Context) -> pd.DataFrame:
 
 def report_kpis(ctx: Context) -> str:
     k = kpis(ctx.df)
-    marked = k["disputable"] + k["attention"]
+    marked = k["disputable"]
     decided = sum(1 for r in ctx.reviews.values() if r.get("decision"))
     edited = sum(1 for r in ctx.reviews.values() if r.get("recommendation"))
     return R.kpi_row([
-        R.kpi_card("Отмечено для проверки", fmt_int(marked), "alert", "red"),
+        R.kpi_card("Риск 1 (требует проверки)", fmt_int(marked), "alert", "red"),
         R.kpi_card("Решений сотрудника", fmt_int(decided), "check", "green", sub=f"из {fmt_int(marked)} отмеченных"),
         R.kpi_card("Рекомендаций изменено", fmt_int(edited), "edit", "blue"),
     ])
